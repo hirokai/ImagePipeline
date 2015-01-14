@@ -18,18 +18,15 @@ class AnyNode(val id: String = "", var tsort_order: Int = -1) {
   val typ = "any"
 
   def copy(): AnyNode = {
-    new AnyNode(IDGen.gen_new_id())
-  }
-
-  def inputTypes(): Array[TypeTag] = {
-    Array() // stub
-  }
-
-  def outputTypes(): Array[TypeTag] = {
-    Array() // stub
+    new AnyNode(id = IDGen.gen_new_id())
   }
 }
 
+trait CalcNode {
+  def inputTypes(): Array[String]
+
+  def outputTypes(): Array[String]
+}
 
 sealed abstract class TypeTag
 
@@ -43,7 +40,7 @@ class NFloat extends NData
 
 class NRoi extends NData
 
-trait AnyData
+abstract class AnyData extends AnyNode
 
 trait AnyEdge
 
@@ -54,9 +51,11 @@ trait InputNode[A] extends AnyNode {
 
 trait OutputNode[A] extends AnyNode {
   override val typ = "output"
+
+  def saveToFile(dat: A): Unit
 }
 
-class TupleNode(id: String = IDGen.gen_new_id(), name: String = "") extends AnyNode {
+class TupleNode(types: (String, String), id: String = IDGen.gen_new_id(), name: String = "") extends AnyNode {
   override val typ = "tuple"
 
   override def toString = {
@@ -65,6 +64,14 @@ class TupleNode(id: String = IDGen.gen_new_id(), name: String = "") extends AnyN
 
   def run(p1: Any, p2: Any): Any = {
     return (p1, p2)
+  }
+
+  def inputTypes(): Array[String] = {
+    Array(types._1, types._2)
+  }
+
+  def outputTypes(): Array[String] = {
+    Array("(%s,%s)".format(types._1, types._2))
   }
 }
 
@@ -81,9 +88,17 @@ class InputImg(val path: String, name: String = "", override val id: String = ID
 }
 
 // NOT cloneable!
-class OutputImg(name: String = "", id: String = IDGen.gen_new_id()) extends AnyNode with OutputNode[NImage] {
+class OutputImg(path: String, name: String = "", id: String = IDGen.gen_new_id()) extends AnyNode with OutputNode[ImageProcessor] {
+  override val typ = "outputimg"
+
   override def toString = {
     "OutputImg(%s)".format(name)
+  }
+
+  def saveToFile(d: ImageProcessor): Unit = {
+    import ij.ImagePlus
+    import ij.IJ
+    IJ.save(new ImagePlus("output", d), path)
   }
 
   override def copy: OutputImg = {
@@ -105,7 +120,7 @@ class ImgNode(id: String = IDGen.gen_new_id(), var name: String = "", imgtyp: St
   }
 }
 
-abstract class ImgOp[A, B](id: String = IDGen.gen_new_id(), val name: String = "") extends AnyNode {
+abstract class ImgOp[A, B](id: String = IDGen.gen_new_id(), val name: String = "") extends AnyNode with CalcNode {
   override val typ = "imgop"
 
   def run(params: Any): Any
@@ -115,7 +130,7 @@ abstract class ImgOp[A, B](id: String = IDGen.gen_new_id(), val name: String = "
   }
 }
 
-abstract class ImgOp1[A1, A2, B](id: String = IDGen.gen_new_id(), val name: String = "") extends AnyNode {
+abstract class ImgOp1[A1, A2, B](id: String = IDGen.gen_new_id(), val name: String = "")extends AnyNode with CalcNode  {
   override val typ = "imgop"
 
   def run(p1: Any, p2: Any): Any
@@ -125,10 +140,18 @@ abstract class ImgOp1[A1, A2, B](id: String = IDGen.gen_new_id(), val name: Stri
   }
 }
 
-class SimpleOp[A, B](name: String, func: Any => Any, id: String = IDGen.gen_new_id()) extends ImgOp[A, B] {
+class SimpleOp[A, B](name: String, func: Any => Any, types: (String, String), id: String = IDGen.gen_new_id()) extends ImgOp[A, B] {
   //  override val typ = "simpleop"
   def run(p1: Any): Any = {
     func(p1)
+  }
+
+  def inputTypes(): Array[String] = {
+    Array(types._1)
+  }
+
+  def outputTypes(): Array[String] = {
+    Array(types._2)
   }
 
   override def toString(): String = {
@@ -136,22 +159,31 @@ class SimpleOp[A, B](name: String, func: Any => Any, id: String = IDGen.gen_new_
   }
 
   override def copy(): SimpleOp[A, B] = {
-    new SimpleOp(name, func, IDGen.gen_new_id())
+    new SimpleOp(name, func, types, IDGen.gen_new_id())
   }
 }
 
-class SimpleOp1[A1, A2, B](name: String, func: (Any, Any) => Any, id: String = IDGen.gen_new_id()) extends ImgOp1[A1, A2, B] {
+class SimpleOp1[A1, A2, B](name: String, func: (Any, Any) => Any, types: (String, String, String), id: String = IDGen.gen_new_id()) extends ImgOp1[A1, A2, B] {
   def run(p1: Any, p2: Any): Any = {
     // println(p1,p2)
     func(p1, p2)
   }
+
+  def inputTypes(): Array[String] = {
+    Array(types._1, types._2)
+  }
+
+  def outputTypes(): Array[String] = {
+    Array(types._3)
+  }
+
 
   override def toString(): String = {
     "%s:SimpleOp: %s".format(id, name)
   }
 
   override def copy(): SimpleOp1[A1, A2, B] = {
-    new SimpleOp1(name, func, IDGen.gen_new_id())
+    new SimpleOp1(name, func, types, IDGen.gen_new_id())
   }
 }
 
@@ -159,7 +191,7 @@ class SimpleOp1[A1, A2, B](name: String, func: (Any, Any) => Any, id: String = I
 //  def add
 //}
 
-class Roi(name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyNode {
+class Roi(name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyData {
   override def toString = {
     "%s:ROI: %s".format(id, name)
   }
@@ -173,6 +205,26 @@ class InputRoi(val data: (Int, Int, Int, Int), val name: String = "", override v
   }
 }
 
+class RowData(val cols: Any*) extends AnyNode {
+  override val typ = "rowdata"
+  override def toString = {
+    "RowData :[%s]".format(cols.mkString(","))
+  }
+}
+
+class OutputRowData(val path: String) extends RowData with OutputNode[RowData] {
+  override val typ = "outputrowdata"
+  def saveToFile(d: RowData): Unit = {
+    println(d.cols)
+
+    import scalax.io.Codec
+    import scalax.io.JavaConverters._
+
+    implicit val codec = Codec.UTF8
+
+    new java.io.File(path).asOutput.write(d.cols.mkString(","))
+  }
+}
 
 class Pipeline[A](val graph: Defs.G) {
   def then[A, B](node: ImgOp[A, B]): Pipeline[B] = {
@@ -181,7 +233,10 @@ class Pipeline[A](val graph: Defs.G) {
     //    assert(ns.length == 1)
     //    println(ns(0))
     val n: ImgOp[A, B] = node.copy().asInstanceOf[ImgOp[A, B]]
-    val n2 = new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
+    val n2 = node.outputTypes()(0) match {
+      case "image" => new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
+      case "rowdata" => new RowData()
+    }
     graph.addNode(n)
     graph.addNode(n2)
     graph.addEdge(ns(0), n)
@@ -207,7 +262,7 @@ class Pipeline[A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[B]]
   }
 
-  def output(out: OutputImg): Pipeline[Nothing] = {
+  def output[A](out: OutputNode[A]): Pipeline[Nothing] = {
     val ns = graph.terminalNodes
     assert(ns.length == 1, ns.mkString)
     graph.addEdge(ns(0), out)
@@ -265,7 +320,7 @@ object Pipeline {
     newg.copyFrom(node2.graph)
     val ns = newg.terminalNodes
     assert(ns.length == 2)
-    val newn = new TupleNode
+    val newn = new TupleNode(("image", "image"))
     newg.addEdge(ns(0), newn)
     newg.addEdge(ns(1), newn)
     new Pipeline(newg)
@@ -354,7 +409,18 @@ object Pipeline {
           case "roi" => getOrCalcNode(i).asInstanceOf[(Int, Int, Int, Int)]
           case "inputimg" => getOrCalcNode(i).asInstanceOf[ImageProcessor]
           case "inputroi" => getOrCalcNode(i).asInstanceOf[(Int, Int, Int, Int)]
-          case "imgop" => getOrCalcNode(i).asInstanceOf[ImageProcessor]
+          case "rowdata" => getOrCalcNode(i).asInstanceOf[RowData]
+          case "imgop" => {
+            val ii = i.asInstanceOf[CalcNode]
+            ii.outputTypes()(0) match {
+              case "image" => getOrCalcNode(i).asInstanceOf[ImageProcessor]
+              case "rowdata" => getOrCalcNode(i).asInstanceOf[RowData]
+              case _ => {
+                println("No match")
+                None
+              }
+            }
+          }
           case "tuple" => {
             //            getOrCalcNode(i).asInstanceOf[(A1, A2)]
           }
@@ -362,6 +428,13 @@ object Pipeline {
         }
       }
     }
+    def isOutput(n: AnyNode) = {
+      Array("outputimg").contains(n.typ)
+      Array("outputrowdata").contains(n.typ)
+    }
+    val outs: Array[AnyNode] = sorted.filter(isOutput).toArray
+    println(outs.mkString(","))
+    outs.map(o => o.asInstanceOf[OutputNode[Any]].saveToFile(values(o.id)))
     values(sorted.last.id)
   }
 
@@ -476,23 +549,31 @@ object Defs {
 
   type G = Graph[AnyNode]
   type CompleteCalc = Pipeline[Nothing]
-  val crop = new SimpleOp1[ImageProcessor, InputRoi, ImgNode]("crop", cropping.asInstanceOf[(Any, Any) => Any])
-  val autocontrast = new SimpleOp[ImgNode, ImgNode]("contrast", contrast_do.asInstanceOf[Any => Any])
+  val crop = new SimpleOp1[ImageProcessor, InputRoi, ImgNode]("crop", cropping.asInstanceOf[(Any, Any) => Any], ("image", "roi", "image"))
+  val autocontrast = new SimpleOp[ImgNode, ImgNode]("contrast", contrast_do.asInstanceOf[Any => Any], ("image", "image"))
 
   val combine2 = new SimpleOp[(ImgNode, ImgNode), ImgNode]("combine", ((a: (ImageProcessor, ImageProcessor)) => {
     println(a._1)
     println(a._2)
     a._2
-  }).asInstanceOf[Any => Any])
+  }).asInstanceOf[Any => Any], ("(image,image)", "image"))
 
   val bf = new InputImg("/Users/hiroyuki/repos/ImagePipeline/BF.jpg")
   val cy5 = new InputImg("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg")
   val roi = new InputRoi((0, 0, 100, 100), "cropping")
   val a = Pipeline.start(bf).then1(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then1(crop, roi).then(autocontrast)
-  val outimg = new OutputImg("result final")
+  val outimg = new OutputImg("result final.tiff")
   val cropAndCombine = Pipeline.cont2(a, b).then(combine2).output(outimg)
   cropAndCombine.verify(Array(bf.id, cy5.id), Array())
+
+  val stat = new SimpleOp[ImgNode, RowData]("getStat", ((img: ImageProcessor) => {
+    val stat = img.getStatistics
+    new RowData(stat.min, stat.max, stat.mean)
+  }).asInstanceOf[Any => Any], ("image", "rowdata"))
+
+  val outstat = new OutputRowData("/Users/hiroyuki/repos/ImagePipeline/test_stat.txt")
+  val getstas = Pipeline.start(bf).then(stat).output(outstat)
 
 
   def merge[A](args: Pipeline[A]*): Pipeline[Array[A]] = {
@@ -512,24 +593,27 @@ object Defs {
 object Main {
 
   import Defs._
-
   import scalax.io._
 
-
-  def main(args: Array[String]): Unit = {
-    val output: Output = Resource.fromFile("test.dot")
-
+  def do_cropCombine(): Unit = {
     val g = cropAndCombine
     g.verify()
     val res = Pipeline.run(g).asInstanceOf[ImageProcessor]
-    import ij.ImagePlus
-    new ImagePlus("Result", res).show()
-
+    val output: Output = Resource.fromFile("test.dot")
     output.write(g.graph.toDot)(Codec.UTF8)
     import scala.sys.process._
     val cmd = Seq("dot", "-T", "pdf").mkString(" ")
     cmd #< g.graph.toDot #> new java.io.File("test.pdf")
+  }
 
+  def do_stat(): Unit = {
+    getstas.verify()
+    val res = Pipeline.run(getstas).asInstanceOf[RowData]
+    println(res)
+  }
+
+  def main(args: Array[String]): Unit = {
+    do_stat()
     println("Completed.")
 
   }
