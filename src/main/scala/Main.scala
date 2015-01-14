@@ -187,10 +187,6 @@ class SimpleOp1[A1, A2, B](name: String, func: (Any, Any) => Any, types: (String
   }
 }
 
-//class Graph {
-//  def add
-//}
-
 class Roi(name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyData {
   override def toString = {
     "%s:ROI: %s".format(id, name)

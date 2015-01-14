@@ -6,6 +6,11 @@ class SetSpec extends FlatSpec {
     assert(Set.empty.size == 0)
   }
 
+  it should "not cause error" in {
+    import Defs._
+    getstas.verify()
+  }
+
   it should "produce NoSuchElementException when head is invoked" in {
     intercept[NoSuchElementException] {
       Set.empty.head
