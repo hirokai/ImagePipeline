@@ -28,18 +28,6 @@ trait CalcNode {
   def outputTypes(): Array[String]
 }
 
-sealed abstract class TypeTag
-
-class NImage extends TypeTag
-
-sealed abstract class NData extends TypeTag
-
-class NInt extends NData
-
-class NFloat extends NData
-
-class NRoi extends NData
-
 abstract class AnyData extends AnyNode
 
 trait AnyEdge
@@ -75,7 +63,7 @@ class TupleNode(types: (String, String), id: String = IDGen.gen_new_id(), name: 
   }
 }
 
-class InputImg(val path: String, name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyNode with InputNode[NImage] {
+class InputImg(val path: String, name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyNode with InputNode[ImageProcessor] {
   override val typ = "inputimg"
 
   override def toString = {

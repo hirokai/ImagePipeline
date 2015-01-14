@@ -11,9 +11,4 @@ class SetSpec extends FlatSpec {
     getstas.verify()
   }
 
-  it should "produce NoSuchElementException when head is invoked" in {
-    intercept[NoSuchElementException] {
-      Set.empty.head
-    }
-  }
 }

@@ -1,7 +1,7 @@
 # Image Pipeline, task runner for image processing
 
-[![Build Status](https://travis-ci.org/hirokai/ImagePipeline.svg?branch=master)](https://travis-ci.org/hirokai/ImagePipeline)
-[![Coverage Status](https://img.shields.io/coveralls/hirokai/ImagePipeline.svg)](https://coveralls.io/r/hirokai/ImagePipeline?branch=master)
+[![Build Status](https://travis-ci.org/hirokai/ImagePipelineNew.svg?branch=master)](https://travis-ci.org/hirokai/ImagePipelineNew)
+[![Coverage Status](https://img.shields.io/coveralls/hirokai/ImagePipelineNew.svg)](https://coveralls.io/r/hirokai/ImagePipelineNew?branch=master)
 
 > Task runner for image processing
 
