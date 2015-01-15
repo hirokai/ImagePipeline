@@ -241,10 +241,23 @@ class Pipeline[A](val graph: Defs.G) {
     val ns = graph.terminalNodes
     assert(ns.length == 1, ns.mkString)
     graph.addEdge(ns(0), out)
+    outputSet = true
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
-  def interface[In <: Product, Out <: Product](ins: In, outs: Out): Pipeline[A] = {
+  def interface(ins: InputNode[_]*): Pipeline[A] = {
+    assert(outputSet)
+
+    // sort tsort_order for input nodes, so that input will match with args.
+    val ns = ins.map(_.tsort_order).toSeq.sorted
+    ns.zip(ins).map(a => a._2.tsort_order = a._1)
+
+    interfaceSet = true
+
+    this
+  }
+
+  def interface[In <: Product, Out <: Product](ins: In, outs: Out = null): Pipeline[A] = {
     assert(ins.productArity == graph.startingNodes.length)
     assert(outs.productArity == graph.terminalNodes.length)
 
@@ -253,34 +266,28 @@ class Pipeline[A](val graph: Defs.G) {
     val ns = ins2.map(_.tsort_order).toSeq.sorted
     ns.zip(ins2).map(a => a._2.tsort_order = a._1)
 
-    //same for output
-    val outs2 = outs.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
-    val ns2 = outs2.map(_.tsort_order).toSeq.sorted
-    ns2.zip(ins2).map(a => a._2.tsort_order = a._1)
+    if(outs != null){
+      //same for output
+      val outs2 = outs.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
+      val ns2 = outs2.map(_.tsort_order).toSeq.sorted
+      ns2.zip(ins2).map(a => a._2.tsort_order = a._1)
+    }else if(!outputSet){
+      throw new Exception("No output set.")
+    }
     interfaceSet = true
     this
   }
 
   var interfaceSet: Boolean = false
+  var outputSet: Boolean = false
 
-  def verify(ins: Array[String], outs: Array[String]): Boolean = {
-    val sorted: Iterable[AnyNode] = graph.tsort
-    var count = 0
-    for (n: AnyNode <- sorted) {
-      n.tsort_order = count
-      count += 1
-    }
-
-    import scalax.io.Codec
-    import scalax.io.JavaConverters._
-    implicit val codec = Codec.UTF8
-    new java.io.File("test.dot").asOutput.write(graph.toDot)
-    true
+  def verify(ins: Array[String], outs: Array[String]): Unit = {
+    verify()
   }
 
   def verify(): Unit = {
     if(!interfaceSet)
-      throw new Exception("Input and output should be set before run.")
+      throw new Exception("Input and output should be set before run by interface() method.")
     val sorted: Iterable[AnyNode] = graph.tsort
     var count = 0
     for (n: AnyNode <- sorted) {
@@ -537,7 +544,7 @@ object Defs {
   val a = Pipeline.start(bf).then1(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then1(crop, roi).then(autocontrast)
   val outimg = new OutputImg("result final.tiff", "Result")
-  val cropAndCombine = Pipeline.cont2(combine2, a, b).output(outimg).interface((bf,cy5,roi),Tuple1(outimg))
+  val cropAndCombine = Pipeline.cont2(combine2, a, b).output(outimg).interface(bf,cy5,roi)
   cropAndCombine.verify(Array(bf.id, cy5.id), Array())
 
   val stat = new SimpleOp1[ImgNode, RowData]("getStat", ((img: ImageProcessor) => {
@@ -546,7 +553,7 @@ object Defs {
   }).asInstanceOf[Any => Any], ("image", "rowdata"))
 
   val outstat = new OutputRowData("/Users/hiroyuki/repos/ImagePipeline/test_stat.txt")
-  val getstas = Pipeline.start(bf).then(stat).output(outstat)
+  val getstas = Pipeline.start(bf).then(stat).output(outstat).interface(bf)
 
 
   def merge[A](args: Pipeline[A]*): Pipeline[Array[A]] = {
