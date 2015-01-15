@@ -21,6 +21,10 @@ class AnyNode(val name: String = "", val id: String = IDGen.gen_new_id(), var ts
   def copy(): AnyNode = {
     new AnyNode(id = IDGen.gen_new_id())
   }
+
+  protected def defaultToString(class_name: String): String = {
+    "%s:%s: %s (%d)".format(id, class_name, name, tsort_order)
+  }
 }
 
 abstract class CalcNode extends AnyNode {
@@ -30,6 +34,9 @@ abstract class CalcNode extends AnyNode {
 }
 
 trait DataNode {
+}
+
+trait CalculatedNode extends DataNode {
   def asOutput: OutputNode[_]
 }
 
@@ -40,22 +47,46 @@ trait InputNode[A] extends AnyNode with DataNode {
   //  override val typ = "input"
 }
 
-trait OutputNode[A] extends AnyNode with DataNode {
+trait OutputNode[A] extends AnyNode with CalculatedNode {
   override val typ = "output"
 
   def saveToFile(path: String, dat: A): Unit
+
+  def asOutput = this
+}
+
+class ArrayNode[A] extends AnyNode with CalculatedNode {
+  def asOutput = new OutArrayNode[A]
+}
+
+class OutArrayNode[A] extends AnyNode with OutputNode[Array[A]] {
+  def saveToFile(path: String, dat: Array[A]): Unit = {
+
+  }
+
+  override def toString = defaultToString("OutArrayNode")
+}
+
+class Map1Node[A, B](val func: SimpleOp1[A, B]) extends CalcNode {
+  override def inputTypes(): Array[String] = {
+    Array()
+  }
+
+  override def outputTypes(): Array[String] = {
+    Array()
+  }
+
+  override def toString = defaultToString("MapNode")
+}
+
+class InputFileList() extends AnyNode with InputNode[Array[String]] {
+  override def toString = defaultToString("InputFileList")
 }
 
 class InputImg(val path: String, name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyNode with InputNode[ImageProcessor] {
   override val typ = "inputimg"
 
-  override def toString = {
-    "%s:InputImg(%s): %d".format(id, name, tsort_order)
-  }
-
-  def asOutput: OutputNode[ImageProcessor] = {
-    new OutputImg(name,id)
-  }
+  override def toString = defaultToString("InputImg")
 
   override def copy: InputImg = {
     new InputImg(name)
@@ -66,9 +97,7 @@ class InputImg(val path: String, name: String = "", override val id: String = ID
 class OutputImg(name: String = "", id: String = IDGen.gen_new_id()) extends AnyNode with OutputNode[ImageProcessor] {
   override val typ = "outputimg"
 
-  override def toString = {
-    "%s:OutputImg: %s: %s".format(id, name, tsort_order)
-  }
+  override def toString = defaultToString("OutputImg")
 
   def saveToFile(path: String, d: ImageProcessor): Unit = {
     import ij.ImagePlus
@@ -79,10 +108,9 @@ class OutputImg(name: String = "", id: String = IDGen.gen_new_id()) extends AnyN
   override def copy: OutputImg = {
     new OutputImg(name)
   }
-  def asOutput = this
 }
 
-class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String = "gray") extends AnyNode with DataNode {
+class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String = "gray") extends AnyNode with CalculatedNode {
   override val typ = "image"
 
   override def toString = {
@@ -94,7 +122,7 @@ class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String
   }
 
   def asOutput: OutputNode[ImageProcessor] = {
-    new OutputImg(name,id)
+    new OutputImg(name, id)
   }
 }
 
@@ -177,6 +205,7 @@ class InputFilePath extends AnyNode with InputNode[String] {
   override def toString = {
     "%s:InputFilePath: %s".format(id, name)
   }
+
   def asOutput = ???
 }
 
@@ -184,10 +213,11 @@ class Roi(name: String = "", override val id: String = IDGen.gen_new_id()) exten
   override def toString = {
     "%s:ROI: %s".format(id, name)
   }
+
   def asOutput = ???
 }
 
-class InputRoi(val data: (Int, Int, Int, Int), name: String = "", override val id: String = IDGen.gen_new_id()) extends Roi with InputNode[(Int,Int,Int,Int)] {
+class InputRoi(val data: (Int, Int, Int, Int), name: String = "", override val id: String = IDGen.gen_new_id()) extends Roi with InputNode[(Int, Int, Int, Int)] {
   override val typ = "inputroi"
 
   override def toString = {
@@ -195,12 +225,13 @@ class InputRoi(val data: (Int, Int, Int, Int), name: String = "", override val i
   }
 }
 
-class RowData(val cols: Any*) extends AnyNode with DataNode {
+class RowData(val cols: Any*) extends AnyNode with CalculatedNode {
   override val typ = "rowdata"
 
   override def toString = {
     "RowData :[%s]".format(cols.mkString(","))
   }
+
   def asOutput = {
     new OutputRowData()
   }
@@ -219,15 +250,15 @@ class OutputRowData extends AnyNode with OutputNode[RowData] {
 
     new java.io.File(path).asOutput.write(d.cols.mkString(","))
   }
+
   override def toString = {
     "%s: OutputRowData".format(id)
   }
 
-  def asOutput = this
 }
 
-class Pipeline[A](val graph: Defs.G) {
-  def then[A, B](node: ImgOp1[A, B]): Pipeline[B] = {
+class Pipeline[A <: AnyNode](val graph: Defs.G) {
+  def then[A, B <: AnyNode](node: ImgOp1[A, B]): Pipeline[B] = {
     val ns = graph.terminalNodes
     //    println(ns)
     //    assert(ns.length == 1)
@@ -247,7 +278,7 @@ class Pipeline[A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[B]]
   }
 
-  def then1[A1, A2, B](node: ImgOp2[A1, A2, B], param: A2): Pipeline[B] = {
+  def then1[A1, A2, B <: AnyNode](node: ImgOp2[A1, A2, B], param: A2): Pipeline[B] = {
     val ns = graph.terminalNodes
     val n: ImgOp2[A1, A2, B] = node.copy().asInstanceOf[ImgOp2[A1, A2, B]]
     val n2 = new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
@@ -262,12 +293,28 @@ class Pipeline[A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[B]]
   }
 
+  def map[A, B <: AnyNode](func: SimpleOp1[A, B]): Pipeline[ArrayNode[B]] = {
+    val n = getSingleOutput
+    val m = new Map1Node(func)
+    graph.addEdge(n, m)
+    graph.addEdge(m, new ArrayNode[B])
+    this.asInstanceOf[Pipeline[ArrayNode[B]]]
+  }
+
+  def getSingleOutput: A = {
+    val ns = graph.terminalNodes
+    assert(ns.length == 1, "There are multiple outputs.")
+    ns(0).asInstanceOf[A]
+  }
+
   def output(): Pipeline[Nothing] = {
     val ns = graph.terminalNodes
     assert(ns.length == 1, ns.mkString)
-    assert(ns(0).isInstanceOf[DataNode], ns(0))
+    assert(ns(0).isInstanceOf[CalculatedNode] ||
+      ns(0).isInstanceOf[Map1Node[_, _]] ||
+      ns(0).isInstanceOf[ArrayNode[_]], ns(0))
     outputSet = true
-    graph.replaceNode(ns(0),ns(0).asInstanceOf[DataNode].asOutput)
+    graph.replaceNode(ns(0), ns(0).asInstanceOf[CalculatedNode].asOutput)
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
@@ -293,12 +340,12 @@ class Pipeline[A](val graph: Defs.G) {
     val ns = ins2.map(_.tsort_order).toSeq.sorted
     ns.zip(ins2).map(a => a._2.tsort_order = a._1)
 
-    if(outs != null){
+    if (outs != null) {
       //same for output
       val outs2 = outs.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
       val ns2 = outs2.map(_.tsort_order).toSeq.sorted
       ns2.zip(ins2).map(a => a._2.tsort_order = a._1)
-    }else if(!outputSet){
+    } else if (!outputSet) {
       throw new Exception("No output set.")
     }
     interfaceSet = true
@@ -313,7 +360,7 @@ class Pipeline[A](val graph: Defs.G) {
   }
 
   def verify(): Unit = {
-    if(!interfaceSet)
+    if (!interfaceSet)
       throw new Exception("Input and output should be set before run by interface() method.")
     val sorted: Iterable[AnyNode] = graph.tsort
     var count = 0
@@ -327,35 +374,42 @@ class Pipeline[A](val graph: Defs.G) {
     implicit val codec = Codec.UTF8
     new java.io.File("test.dot").asOutput.write(graph.toDot)
   }
+
+  def run[A <: Product](params: A): Array[Any] ={
+    this match {
+      case c: Pipeline[Nothing] =>
+        Pipeline.run(c, params)
+      case _ => throw new Exception("Not complete pipeline.")
+    }
+  }
 }
 
 object Pipeline {
 
   import Defs.G
 
-  def start[A](node: InputNode[A]): Pipeline[A] = {
-    val p = new Pipeline[A](new G)
+  def start[A](node: InputNode[A]): Pipeline[InputNode[A]] = {
+    val p = new Pipeline[InputNode[A]](new G)
     p.graph.addNode(node)
     //println(p.graph.nodes)
     p
   }
 
-  def cont2[A1, A2, B](func: SimpleOp2[A1, A2, B], node: Pipeline[A1], node2: Pipeline[A2]): Pipeline[B] = {
+  def cont2[A1 <: AnyNode, A2 <: AnyNode, B <: AnyNode](func: SimpleOp2[A1, A2, B], node: Pipeline[A1], node2: Pipeline[A2]): Pipeline[B] = {
     val newg = new Defs.G
     assert(node.graph.terminalNodes.length == 1)
     assert(node2.graph.terminalNodes.length == 1)
     newg.copyFrom(node.graph)
     newg.copyFrom(node2.graph)
     val ns = newg.terminalNodes
-    val n2 = new ImgNode()  // FIXME: this is not always ImgNode
+    val n2 = new ImgNode() // FIXME: this is not always ImgNode
     assert(ns.length == 2)
     newg.addEdge(ns(0), func)
     newg.addEdge(ns(1), func)
-    newg.addEdge(func,n2)
+    newg.addEdge(func, n2)
     new Pipeline(newg)
 
   }
-
 
   import Defs._
 
@@ -367,11 +421,11 @@ object Pipeline {
 
     val ins: Array[AnyNode] = sorted.filter(_.isInstanceOf[InputNode[_]]).toSeq.sortBy(_.tsort_order).toArray
     println(ins.mkString)
-    if(ins.length != args.productArity){
+    if (ins.length != args.productArity) {
       throw new IllegalArgumentException("Arity does not match.")
     }
-    for((p,i) <- args.productIterator.toArray.zip(ins)){
-      println(p,i)
+    for ((p, i) <- args.productIterator.toArray.zip(ins)) {
+      println(p, i)
       values(i.asInstanceOf[AnyNode].id) = p
     }
 
@@ -381,17 +435,17 @@ object Pipeline {
       //      assert(in_types.length == ins.length)
 
       node match {
-//        case n: InputNode[_] => {
-//          val res = n match {
-//            case n: InputImg => {
-//              IJ.openImage(n.path).getProcessor
-//            }
-//            case n: InputRoi => {
-//              n.data
-//            }
-//          }
-//          values(n.id) = res
-//        }
+        //        case n: InputNode[_] => {
+        //          val res = n match {
+        //            case n: InputImg => {
+        //              IJ.openImage(n.path).getProcessor
+        //            }
+        //            case n: InputRoi => {
+        //              n.data
+        //            }
+        //          }
+        //          values(n.id) = res
+        //        }
         case n: DataNode => {
           println("DataNode calculating:" + n.toString)
           val ins = calc.graph.predecessors(node)
@@ -399,7 +453,7 @@ object Pipeline {
           assert(ins(0).isInstanceOf[CalcNode])
           val c = ins(0).asInstanceOf[CalcNode]
           val params = calc.graph.predecessors(c)
-          println(params.mkString(","),c.name)
+          println(params.mkString(","), c.name)
           val res = c match {
             case c: Calc1 => {
               assert(params.length == 1)
@@ -407,21 +461,32 @@ object Pipeline {
             }
             case c: Calc2 => {
               assert(params.length == 2)
-              println(params(0).id,params(1).id)
-              println(values(params(0).id),values(params(1).id))
+              println(params(0).id, params(1).id)
+              println(values(params(0).id), values(params(1).id))
               c.run(values(params(0).id), values(params(1).id))
             }
-          }
+            case c: Map1Node[_,_] => {
+              val ins = calc.graph.predecessors(c)
+              assert(ins.length == 1)
+              println(ins(0))
+              val vs = values(ins(0).id)
+              vs.asInstanceOf[Array[_]].map(c.func.run(_))}
+            }
           values(n.id) = res
         }
         case n: CalcNode =>
+        case n: Map1Node[_,_] =>
       }
     }
 
     val outs: Array[AnyNode] = sorted.filter(_.isInstanceOf[OutputNode[_]]).toSeq.sortBy(_.tsort_order).toArray
     println("Outputs: " + outs.mkString(","))
-//    outs.zip(outpaths).map(o => o._1.asInstanceOf[OutputNode[Any]].saveToFile(o._2,values(o._1.id)))
+    //    outs.zip(outpaths).map(o => o._1.asInstanceOf[OutputNode[Any]].saveToFile(o._2,values(o._1.id)))
     outs.map(o => values(o.asInstanceOf[OutputNode[Any]].id))
+  }
+
+  protected def input(calc: Pipeline[_],node: AnyNode): Array[AnyNode] = {
+    calc.graph.predecessors(node)
   }
 
 }
@@ -453,15 +518,15 @@ class Graph[A <: AnyNode : ClassTag] {
 
   def replaceNode(fr: A, to: A): Unit = {
     edges = edges.map(e => {
-      if(e._1 == fr)
-        (to,e._2, e._3)
-      else if(e._2 == fr){
-        (e._1,to,e._3)
-      }else {
+      if (e._1 == fr)
+        (to, e._2, e._3)
+      else if (e._2 == fr) {
+        (e._1, to, e._3)
+      } else {
         e
       }
     })
-    nodes = nodes.map(n => if(n == fr) to else n)
+    nodes = nodes.map(n => if (n == fr) to else n)
   }
 
   def toDot: String = {
@@ -580,9 +645,9 @@ object Defs {
     r
   }: ImageProcessor).asInstanceOf[(Any, Any) => Any], ("image", "image", "image"))
 
-  val imload = new SimpleOp1[String,ImgNode]("image load", ((path: String) => {
-      IJ.openImage(path).getProcessor
-  }).asInstanceOf[Any => Any], ("path","image"))
+  val imload = new SimpleOp1[String, ImgNode]("image load", ((path: String) => {
+    IJ.openImage(path).getProcessor
+  }).asInstanceOf[Any => Any], ("path", "image"))
 
   val bf = new InputImg("/Users/hiroyuki/repos/ImagePipeline/BF.jpg")
   val cy5 = new InputImg("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg")
@@ -590,9 +655,8 @@ object Defs {
   val a = Pipeline.start(bf).then1(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then1(crop, roi).then(autocontrast)
   val outimg = new OutputImg("result final.tiff", "Result")
-  val cropAndCombine = Pipeline.cont2(combine2, a, b).output().interface((bf,cy5,roi))
+  val cropAndCombine = Pipeline.cont2(combine2, a, b).output().interface((bf, cy5, roi))
   cropAndCombine.verify(Array(bf.id, cy5.id), Array())
-
 
 
   val stat = new SimpleOp1[ImgNode, RowData]("getStat", ((img: ImageProcessor) => {
@@ -600,11 +664,11 @@ object Defs {
     new RowData(stat.min, stat.max, stat.mean)
   }).asInstanceOf[Any => Any], ("image", "rowdata"))
 
-  val statroi = new SimpleOp2[ImgNode, Roi, RowData]("getStat", ((img: ImageProcessor, roi: (Int,Int,Int,Int)) => {
-    img.setRoi(roi._1,roi._2,roi._3,roi._4)
+  val statroi = new SimpleOp2[ImgNode, Roi, RowData]("getStat", ((img: ImageProcessor, roi: (Int, Int, Int, Int)) => {
+    img.setRoi(roi._1, roi._2, roi._3, roi._4)
     val stat = img.getStatistics
     new RowData(stat.min, stat.max, stat.mean)
-  }).asInstanceOf[(Any,Any) => Any], ("image", "roi", "rowdata"))
+  }).asInstanceOf[(Any, Any) => Any], ("image", "roi", "rowdata"))
 
   val outstat = new OutputRowData()
 
@@ -612,20 +676,21 @@ object Defs {
 
   val getstats: CompleteCalc = Pipeline.start(file_path).then(imload).then(stat).output().interface(file_path)
 
-  val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then1(statroi,roi).output().interface(file_path,roi)
+  val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then1(statroi, roi).output().interface(file_path, roi)
 
-  def merge[A](args: Pipeline[A]*): Pipeline[Array[A]] = {
-    val newg = new G
-    val newn = new ImgNode("merged")
-    args.map(a => newg.copyFrom(a.graph))
-    //    println(ns.length)
-    //    println(args(0).graph.terminalNodes)
-    val ns = newg.terminalNodes
-    for (n <- ns) {
-      newg.addEdge(n, newn)
-    }
-    new Pipeline(newg)
-  }
+
+  //  def merge[A <: AnyNode](args: Pipeline[A]*): Pipeline[ArrayNode[A]] = {
+  //    val newg = new G
+  //    val newn = new ImgNode("merged")
+  //    args.map(a => newg.copyFrom(a.graph))
+  //    //    println(ns.length)
+  //    //    println(args(0).graph.terminalNodes)
+  //    val ns = newg.terminalNodes
+  //    for (n <- ns) {
+  //      newg.addEdge(n, newn)
+  //    }
+  //    new Pipeline(newg)
+  //  }
 }
 
 object Main {
@@ -634,10 +699,9 @@ object Main {
   import scalax.io._
 
 
-
   def do_stat(): Unit = {
     getstats.verify()
-    val res = Pipeline.run(getstats,Tuple1(1)).asInstanceOf[RowData]
+    val res = Pipeline.run(getstats, Tuple1(1)).asInstanceOf[RowData]
     println(res)
   }
 
@@ -664,7 +728,14 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    println("Do nothing.")
+    getstats_roi.verify()
+
+    for (i <- 0 until 100) {
+      val res = Pipeline.run(getstats_roi, ("/Users/hiroyuki/repos/ImagePipeline/BF.jpg", (0, 0, 300, 300)))
+      println(res.mkString(","))
+    }
+
+    println("Done.")
 
   }
 }

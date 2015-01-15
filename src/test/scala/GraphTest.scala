@@ -44,3 +44,18 @@ class SetSpec extends FlatSpec {
   }
 
 }
+
+class MapNodeSpec extends FlatSpec {
+  "map" should "be composable" in {
+    val filelist = new InputFileList()
+    val a: CompleteCalc = Pipeline.start(filelist).map(imload).output().interface(filelist)
+    a.verify()
+  }
+
+  it should "run" in {
+    val filelist = new InputFileList()
+    val a: CompleteCalc = Pipeline.start(filelist).map(imload).output().interface(filelist)
+    a.run(Tuple1(Array("/Users/hiroyuki/repos/ImagePipeline/BF.jpg","/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg")))
+  }
+
+}
