@@ -18,6 +18,14 @@ class SetSpec extends FlatSpec {
     println(res.mkString(","))
   }
 
+
+  "getstats_roi" should "be fine" in {
+    import Defs._
+    getstats_roi.verify()
+    val res = Pipeline.run(getstats_roi, ("/Users/hiroyuki/repos/ImagePipeline/BF.jpg", (0,0,300,300)))
+    println(res.mkString(","))
+  }
+
   "Crop and combine" should "be fine" in {
     def do_cropCombine(): Unit = {
       import scala.sys.process._

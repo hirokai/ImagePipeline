@@ -271,14 +271,14 @@ class Pipeline[A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
-  def setInput(ins: InputNode[_]*): Pipeline[A] = {
+  def interface(ins: InputNode[_]*): Pipeline[A] = {
     assert(outputSet)
+    assert(ins.length == graph.startingNodes.length)
 
     // sort tsort_order for input nodes, so that input will match with args.
-    val ns = ins.map(_.tsort_order).toSeq.sorted
-//`
-
-
+    val ins2 = ins.map(_.asInstanceOf[AnyNode])
+    val ns = ins2.map(_.tsort_order).toSeq.sorted
+    ns.zip(ins2).map(a => a._2.tsort_order = a._1)
     interfaceSet = true
 
     this
@@ -600,10 +600,19 @@ object Defs {
     new RowData(stat.min, stat.max, stat.mean)
   }).asInstanceOf[Any => Any], ("image", "rowdata"))
 
-  val outstat = new OutputRowData()
-  val file_path = new InputFilePath()
-  val getstats: CompleteCalc = Pipeline.start(file_path).then(imload).then(stat).output().interface(Tuple1(file_path),Tuple1(outstat))
+  val statroi = new SimpleOp2[ImgNode, Roi, RowData]("getStat", ((img: ImageProcessor, roi: (Int,Int,Int,Int)) => {
+    img.setRoi(roi._1,roi._2,roi._3,roi._4)
+    val stat = img.getStatistics
+    new RowData(stat.min, stat.max, stat.mean)
+  }).asInstanceOf[(Any,Any) => Any], ("image", "roi", "rowdata"))
 
+  val outstat = new OutputRowData()
+
+  val file_path = new InputFilePath()
+
+  val getstats: CompleteCalc = Pipeline.start(file_path).then(imload).then(stat).output().interface(file_path)
+
+  val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then1(statroi,roi).output().interface(file_path,roi)
 
   def merge[A](args: Pipeline[A]*): Pipeline[Array[A]] = {
     val newg = new G
