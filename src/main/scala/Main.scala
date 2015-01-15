@@ -15,7 +15,7 @@ object IDGen {
   }
 }
 
-class AnyNode(val id: String = "", var tsort_order: Int = -1) {
+class AnyNode(val name: String = "", val id: String = IDGen.gen_new_id(), var tsort_order: Int = -1) {
   val typ = "any"
 
   def copy(): AnyNode = {
@@ -77,7 +77,7 @@ class OutputImg(path: String, name: String = "", id: String = IDGen.gen_new_id()
   }
 }
 
-class ImgNode(id: String = IDGen.gen_new_id(), var name: String = "", imgtyp: String = "gray") extends AnyNode with DataNode {
+class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String = "gray") extends AnyNode with DataNode {
   override val typ = "image"
 
   override def toString = {
@@ -97,7 +97,7 @@ trait Calc2 {
   def run(p1: Any, p2: Any): Any
 }
 
-abstract class ImgOp1[A, B](id: String = IDGen.gen_new_id(), val name: String = "") extends CalcNode with Calc1 {
+abstract class ImgOp1[A, B](id: String = IDGen.gen_new_id(), name: String = "") extends CalcNode with Calc1 {
   override val typ = "imgop"
 
   def run(params: Any): Any
@@ -107,7 +107,7 @@ abstract class ImgOp1[A, B](id: String = IDGen.gen_new_id(), val name: String = 
   }
 }
 
-abstract class ImgOp2[A1, A2, B](id: String = IDGen.gen_new_id(), val name: String = "") extends CalcNode with Calc2 {
+abstract class ImgOp2[A1, A2, B](id: String = IDGen.gen_new_id(), name: String = "") extends CalcNode with Calc2 {
   override val typ = "imgop"
 
   def run(p1: Any, p2: Any): Any
@@ -170,7 +170,7 @@ class Roi(name: String = "", override val id: String = IDGen.gen_new_id()) exten
   }
 }
 
-class InputRoi(val data: (Int, Int, Int, Int), val name: String = "", override val id: String = IDGen.gen_new_id()) extends Roi with InputNode[Roi] {
+class InputRoi(val data: (Int, Int, Int, Int), name: String = "", override val id: String = IDGen.gen_new_id()) extends Roi with InputNode[Roi] {
   override val typ = "inputroi"
 
   override def toString = {
@@ -237,12 +237,31 @@ class Pipeline[A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[B]]
   }
 
-  def output[A](out: OutputNode[A]): Pipeline[Nothing] = {
+  def output(out: OutputNode[_]): Pipeline[Nothing] = {
     val ns = graph.terminalNodes
     assert(ns.length == 1, ns.mkString)
     graph.addEdge(ns(0), out)
     this.asInstanceOf[Pipeline[Nothing]]
   }
+
+  def interface[In <: Product, Out <: Product](ins: In, outs: Out): Pipeline[A] = {
+    assert(ins.productArity == graph.startingNodes.length)
+    assert(outs.productArity == graph.terminalNodes.length)
+
+    // sort tsort_order for input nodes, so that input will match with args.
+    val ins2 = ins.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
+    val ns = ins2.map(_.tsort_order).toSeq.sorted
+    ns.zip(ins2).map(a => a._2.tsort_order = a._1)
+
+    //same for output
+    val outs2 = outs.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
+    val ns2 = outs2.map(_.tsort_order).toSeq.sorted
+    ns2.zip(ins2).map(a => a._2.tsort_order = a._1)
+    interfaceSet = true
+    this
+  }
+
+  var interfaceSet: Boolean = false
 
   def verify(ins: Array[String], outs: Array[String]): Boolean = {
     val sorted: Iterable[AnyNode] = graph.tsort
@@ -259,7 +278,9 @@ class Pipeline[A](val graph: Defs.G) {
     true
   }
 
-  def verify(): Boolean = {
+  def verify(): Unit = {
+    if(!interfaceSet)
+      throw new Exception("Input and output should be set before run.")
     val sorted: Iterable[AnyNode] = graph.tsort
     var count = 0
     for (n: AnyNode <- sorted) {
@@ -271,7 +292,6 @@ class Pipeline[A](val graph: Defs.G) {
     import scalax.io.JavaConverters._
     implicit val codec = Codec.UTF8
     new java.io.File("test.dot").asOutput.write(graph.toDot)
-    true
   }
 }
 
@@ -300,37 +320,50 @@ object Pipeline {
 
   }
 
+
   import Defs._
 
-  def run[A1, A2](calc: CompleteCalc): Any = {
+  def run[A1, A2, In <: Product](calc: CompleteCalc, args: In): Array[Any] = {
     calc.verify()
 
     val sorted = calc.graph.tsort
     val values = new mutable.HashMap[String, Any] //(calc.graph.nodes.length)
 
-    for (node <- sorted) {
+    val ins: Array[AnyNode] = sorted.filter(_.isInstanceOf[InputNode[_]]).toSeq.sortBy(_.tsort_order).toArray
+    println(ins.mkString)
+    if(ins.length != args.productArity){
+      throw new IllegalArgumentException("Arity does not match.")
+    }
+    for((p,i) <- args.productIterator.toArray.zip(ins)){
+      println(p,i)
+      values(i.asInstanceOf[AnyNode].id) = p
+    }
+
+    for (node <- sorted if values.get(node.id).isEmpty) {
       println("Processing: %s".format(node))
       //      val in_types = node.inputTypes()
       //      assert(in_types.length == ins.length)
+
       node match {
-        case n: InputNode[_] => {
-          val res = n match {
-            case n: InputImg => {
-              IJ.openImage(n.path).getProcessor
-            }
-            case n: InputRoi => {
-              n.data
-            }
-          }
-          values(n.id) = res
-        }
+//        case n: InputNode[_] => {
+//          val res = n match {
+//            case n: InputImg => {
+//              IJ.openImage(n.path).getProcessor
+//            }
+//            case n: InputRoi => {
+//              n.data
+//            }
+//          }
+//          values(n.id) = res
+//        }
         case n: DataNode => {
+          println("DataNode calculating:" + n.toString)
           val ins = calc.graph.predecessors(node)
           assert(ins.length == 1)
           assert(ins(0).isInstanceOf[CalcNode])
           val c = ins(0).asInstanceOf[CalcNode]
           val params = calc.graph.predecessors(c)
-          def get_val(n: AnyNode): Any = values(n.id)
+          println(params.mkString(","),c.name)
           val res = c match {
             case c: Calc1 => {
               assert(params.length == 1)
@@ -338,7 +371,9 @@ object Pipeline {
             }
             case c: Calc2 => {
               assert(params.length == 2)
-              c.run(values(params(0).id),values(params(1).id))
+              println(params(0).id,params(1).id)
+              println(values(params(0).id),values(params(1).id))
+              c.run(values(params(0).id), values(params(1).id))
             }
           }
           values(n.id) = res
@@ -347,14 +382,10 @@ object Pipeline {
       }
     }
 
-    def isOutput(n: AnyNode) = {
-      println(n, n.typ)
-      Array("outputimg").contains(n.typ) || Array("outputrowdata").contains(n.typ)
-    }
-    val outs: Array[AnyNode] = sorted.filter(isOutput).toArray
+    val outs: Array[AnyNode] = sorted.filter(_.isInstanceOf[OutputNode[_]]).toSeq.sortBy(_.tsort_order).toArray
     println("Outputs: " + outs.mkString(","))
     outs.map(o => o.asInstanceOf[OutputNode[Any]].saveToFile(values(o.id)))
-    values(sorted.last.id)
+    outs.map(o => values(o.asInstanceOf[OutputNode[Any]].id))
   }
 
 }
@@ -402,15 +433,27 @@ class Graph[A <: AnyNode : ClassTag] {
 
   def terminalNodes: Array[A] = {
     val froms = edges.toSeq.map(_._1)
-    //    println("terminalNodes")
-    //    println(froms)
-    //    println(nodes)
     if (nodes.length == 1) {
       Array(nodes(0))
     } else {
       val res = new mutable.ArrayBuffer[A]
       for (n <- nodes) {
         if (!froms.contains(n)) {
+          res += n
+        }
+      }
+      res.toArray
+    }
+  }
+
+  def startingNodes: Array[A] = {
+    val tos = edges.toSeq.map(_._2)
+    if (nodes.length == 1) {
+      Array(nodes(0))
+    } else {
+      val res = new mutable.ArrayBuffer[A]
+      for (n <- nodes) {
+        if (!tos.contains(n)) {
           res += n
         }
       }
@@ -474,14 +517,10 @@ object Defs {
   val combine2 = new SimpleOp2[ImgNode, ImgNode, ImgNode]("combine", ((a: ImageProcessor, b: ImageProcessor) => {
     import ij.plugin.StackCombiner
     import ij.ImageStack
-    import ij.IJ
 
     def f(img: ImageProcessor): ImageStack = {
-      var i2 = img.duplicate
-      i2.setRoi(0, 0, 100, 100)
-      i2 = i2.crop()
-      val s = new ImageStack(100, 100)
-      s.addSlice(i2)
+      val s = new ImageStack(img.getWidth, img.getHeight)
+      s.addSlice(img)
       s
     }
     val s1 = f(a)
@@ -498,7 +537,7 @@ object Defs {
   val a = Pipeline.start(bf).then1(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then1(crop, roi).then(autocontrast)
   val outimg = new OutputImg("result final.tiff", "Result")
-  val cropAndCombine = Pipeline.cont2(combine2, a, b).output(outimg)
+  val cropAndCombine = Pipeline.cont2(combine2, a, b).output(outimg).interface((bf,cy5,roi),Tuple1(outimg))
   cropAndCombine.verify(Array(bf.id, cy5.id), Array())
 
   val stat = new SimpleOp1[ImgNode, RowData]("getStat", ((img: ImageProcessor) => {
@@ -533,7 +572,9 @@ object Main {
     import scala.sys.process._
     val g = cropAndCombine
     g.verify()
-    val res = Pipeline.run(g).asInstanceOf[ImageProcessor]
+    val img1 = IJ.openImage("/Users/hiroyuki/repos/ImagePipeline/BF.jpg").getProcessor
+    val img2 = IJ.openImage("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg").getProcessor
+    val res = Pipeline.run(g,(img1,img2,(0,0,400,300)))(0).asInstanceOf[ImageProcessor]
     println(res)
     Seq("rm", "test.dot").mkString(" ").!
     val output: Output = Resource.fromFile("test.dot")
@@ -544,7 +585,7 @@ object Main {
 
   def do_stat(): Unit = {
     getstas.verify()
-    val res = Pipeline.run(getstas).asInstanceOf[RowData]
+    val res = Pipeline.run(getstas,Tuple1(1)).asInstanceOf[RowData]
     println(res)
   }
 
