@@ -11,3 +11,5 @@ libraryDependencies += "com.github.scala-incubator.io" %% "scala-io-file" % "0.4
 libraryDependencies += "gov.nih.imagej" % "imagej" % "1.47"
 
 libraryDependencies += "org.scalatest" % "scalatest_2.11" % "2.2.1" % "test"
+
+libraryDependencies += "net.databinder.dispatch" %% "dispatch-core" % "0.11.2"

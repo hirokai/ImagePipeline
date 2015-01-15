@@ -30,7 +30,7 @@ abstract class CalcNode extends AnyNode {
 }
 
 trait DataNode {
-
+  def asOutput: OutputNode[_]
 }
 
 trait AnyEdge
@@ -43,7 +43,7 @@ trait InputNode[A] extends AnyNode with DataNode {
 trait OutputNode[A] extends AnyNode with DataNode {
   override val typ = "output"
 
-  def saveToFile(dat: A): Unit
+  def saveToFile(path: String, dat: A): Unit
 }
 
 class InputImg(val path: String, name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyNode with InputNode[ImageProcessor] {
@@ -53,20 +53,24 @@ class InputImg(val path: String, name: String = "", override val id: String = ID
     "%s:InputImg(%s): %d".format(id, name, tsort_order)
   }
 
+  def asOutput: OutputNode[ImageProcessor] = {
+    new OutputImg(name,id)
+  }
+
   override def copy: InputImg = {
     new InputImg(name)
   }
 }
 
 // NOT cloneable!
-class OutputImg(path: String, name: String = "", id: String = IDGen.gen_new_id()) extends AnyNode with OutputNode[ImageProcessor] {
+class OutputImg(name: String = "", id: String = IDGen.gen_new_id()) extends AnyNode with OutputNode[ImageProcessor] {
   override val typ = "outputimg"
 
   override def toString = {
     "%s:OutputImg: %s: %s".format(id, name, tsort_order)
   }
 
-  def saveToFile(d: ImageProcessor): Unit = {
+  def saveToFile(path: String, d: ImageProcessor): Unit = {
     import ij.ImagePlus
     import ij.IJ
     IJ.save(new ImagePlus("output", d), path)
@@ -75,6 +79,7 @@ class OutputImg(path: String, name: String = "", id: String = IDGen.gen_new_id()
   override def copy: OutputImg = {
     new OutputImg(name)
   }
+  def asOutput = this
 }
 
 class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String = "gray") extends AnyNode with DataNode {
@@ -86,6 +91,10 @@ class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String
 
   override def copy(): ImgNode = {
     new ImgNode(IDGen.gen_new_id(), name, imgtyp)
+  }
+
+  def asOutput: OutputNode[ImageProcessor] = {
+    new OutputImg(name,id)
   }
 }
 
@@ -164,13 +173,21 @@ class SimpleOp2[A1, A2, B](name: String, func: (Any, Any) => Any, types: (String
   }
 }
 
+class InputFilePath extends AnyNode with InputNode[String] {
+  override def toString = {
+    "%s:InputFilePath: %s".format(id, name)
+  }
+  def asOutput = ???
+}
+
 class Roi(name: String = "", override val id: String = IDGen.gen_new_id()) extends AnyNode with DataNode {
   override def toString = {
     "%s:ROI: %s".format(id, name)
   }
+  def asOutput = ???
 }
 
-class InputRoi(val data: (Int, Int, Int, Int), name: String = "", override val id: String = IDGen.gen_new_id()) extends Roi with InputNode[Roi] {
+class InputRoi(val data: (Int, Int, Int, Int), name: String = "", override val id: String = IDGen.gen_new_id()) extends Roi with InputNode[(Int,Int,Int,Int)] {
   override val typ = "inputroi"
 
   override def toString = {
@@ -184,12 +201,15 @@ class RowData(val cols: Any*) extends AnyNode with DataNode {
   override def toString = {
     "RowData :[%s]".format(cols.mkString(","))
   }
+  def asOutput = {
+    new OutputRowData()
+  }
 }
 
-class OutputRowData(val path: String) extends RowData with OutputNode[RowData] {
+class OutputRowData extends AnyNode with OutputNode[RowData] {
   override val typ = "outputrowdata"
 
-  def saveToFile(d: RowData): Unit = {
+  def saveToFile(path: String, d: RowData): Unit = {
     println(d.cols)
 
     import scalax.io.Codec
@@ -199,6 +219,11 @@ class OutputRowData(val path: String) extends RowData with OutputNode[RowData] {
 
     new java.io.File(path).asOutput.write(d.cols.mkString(","))
   }
+  override def toString = {
+    "%s: OutputRowData".format(id)
+  }
+
+  def asOutput = this
 }
 
 class Pipeline[A](val graph: Defs.G) {
@@ -237,29 +262,31 @@ class Pipeline[A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[B]]
   }
 
-  def output(out: OutputNode[_]): Pipeline[Nothing] = {
+  def output(): Pipeline[Nothing] = {
     val ns = graph.terminalNodes
     assert(ns.length == 1, ns.mkString)
-    graph.addEdge(ns(0), out)
+    assert(ns(0).isInstanceOf[DataNode], ns(0))
     outputSet = true
+    graph.replaceNode(ns(0),ns(0).asInstanceOf[DataNode].asOutput)
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
-  def interface(ins: InputNode[_]*): Pipeline[A] = {
+  def setInput(ins: InputNode[_]*): Pipeline[A] = {
     assert(outputSet)
 
     // sort tsort_order for input nodes, so that input will match with args.
     val ns = ins.map(_.tsort_order).toSeq.sorted
-    ns.zip(ins).map(a => a._2.tsort_order = a._1)
+//`
+
 
     interfaceSet = true
 
     this
   }
 
-  def interface[In <: Product, Out <: Product](ins: In, outs: Out = null): Pipeline[A] = {
+  def interface[In <: Product, Out <: Product](ins: In, outs: Out = null): Pipeline[Nothing] = {
     assert(ins.productArity == graph.startingNodes.length)
-    assert(outs.productArity == graph.terminalNodes.length)
+    assert(outs == null || outs.productArity == graph.terminalNodes.length)
 
     // sort tsort_order for input nodes, so that input will match with args.
     val ins2 = ins.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
@@ -275,7 +302,7 @@ class Pipeline[A](val graph: Defs.G) {
       throw new Exception("No output set.")
     }
     interfaceSet = true
-    this
+    this.asInstanceOf[Pipeline[Nothing]]
   }
 
   var interfaceSet: Boolean = false
@@ -320,9 +347,11 @@ object Pipeline {
     newg.copyFrom(node.graph)
     newg.copyFrom(node2.graph)
     val ns = newg.terminalNodes
+    val n2 = new ImgNode()  // FIXME: this is not always ImgNode
     assert(ns.length == 2)
     newg.addEdge(ns(0), func)
     newg.addEdge(ns(1), func)
+    newg.addEdge(func,n2)
     new Pipeline(newg)
 
   }
@@ -391,7 +420,7 @@ object Pipeline {
 
     val outs: Array[AnyNode] = sorted.filter(_.isInstanceOf[OutputNode[_]]).toSeq.sortBy(_.tsort_order).toArray
     println("Outputs: " + outs.mkString(","))
-    outs.map(o => o.asInstanceOf[OutputNode[Any]].saveToFile(values(o.id)))
+//    outs.zip(outpaths).map(o => o._1.asInstanceOf[OutputNode[Any]].saveToFile(o._2,values(o._1.id)))
     outs.map(o => values(o.asInstanceOf[OutputNode[Any]].id))
   }
 
@@ -420,6 +449,19 @@ class Graph[A <: AnyNode : ClassTag] {
 
   def successors(n: A): Array[A] = {
     edges.filter(_._1 == n).sortBy(_._3).map(_._2).toArray
+  }
+
+  def replaceNode(fr: A, to: A): Unit = {
+    edges = edges.map(e => {
+      if(e._1 == fr)
+        (to,e._2, e._3)
+      else if(e._2 == fr){
+        (e._1,to,e._3)
+      }else {
+        e
+      }
+    })
+    nodes = nodes.map(n => if(n == fr) to else n)
   }
 
   def toDot: String = {
@@ -538,22 +580,29 @@ object Defs {
     r
   }: ImageProcessor).asInstanceOf[(Any, Any) => Any], ("image", "image", "image"))
 
+  val imload = new SimpleOp1[String,ImgNode]("image load", ((path: String) => {
+      IJ.openImage(path).getProcessor
+  }).asInstanceOf[Any => Any], ("path","image"))
+
   val bf = new InputImg("/Users/hiroyuki/repos/ImagePipeline/BF.jpg")
   val cy5 = new InputImg("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg")
   val roi = new InputRoi((0, 0, 100, 100), "cropping")
   val a = Pipeline.start(bf).then1(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then1(crop, roi).then(autocontrast)
   val outimg = new OutputImg("result final.tiff", "Result")
-  val cropAndCombine = Pipeline.cont2(combine2, a, b).output(outimg).interface(bf,cy5,roi)
+  val cropAndCombine = Pipeline.cont2(combine2, a, b).output().interface((bf,cy5,roi))
   cropAndCombine.verify(Array(bf.id, cy5.id), Array())
+
+
 
   val stat = new SimpleOp1[ImgNode, RowData]("getStat", ((img: ImageProcessor) => {
     val stat = img.getStatistics
     new RowData(stat.min, stat.max, stat.mean)
   }).asInstanceOf[Any => Any], ("image", "rowdata"))
 
-  val outstat = new OutputRowData("/Users/hiroyuki/repos/ImagePipeline/test_stat.txt")
-  val getstas = Pipeline.start(bf).then(stat).output(outstat).interface(bf)
+  val outstat = new OutputRowData()
+  val file_path = new InputFilePath()
+  val getstats: CompleteCalc = Pipeline.start(file_path).then(imload).then(stat).output().interface(Tuple1(file_path),Tuple1(outstat))
 
 
   def merge[A](args: Pipeline[A]*): Pipeline[Array[A]] = {
@@ -575,24 +624,11 @@ object Main {
   import Defs._
   import scalax.io._
 
-  def do_cropCombine(): Unit = {
-    import scala.sys.process._
-    val g = cropAndCombine
-    g.verify()
-    val img1 = IJ.openImage("/Users/hiroyuki/repos/ImagePipeline/BF.jpg").getProcessor
-    val img2 = IJ.openImage("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg").getProcessor
-    val res = Pipeline.run(g,(img1,img2,(0,0,400,300)))(0).asInstanceOf[ImageProcessor]
-    println(res)
-    Seq("rm", "test.dot").mkString(" ").!
-    val output: Output = Resource.fromFile("test.dot")
-    output.write(g.graph.toDot)(Codec.UTF8)
-    val cmd = Seq("dot", "-T", "pdf", "test.dot").mkString(" ")
-    cmd #> new java.io.File("test.pdf")
-  }
+
 
   def do_stat(): Unit = {
-    getstas.verify()
-    val res = Pipeline.run(getstas,Tuple1(1)).asInstanceOf[RowData]
+    getstats.verify()
+    val res = Pipeline.run(getstats,Tuple1(1)).asInstanceOf[RowData]
     println(res)
   }
 
@@ -619,8 +655,7 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    do_cropCombine()
-    println("Completed.")
+    println("Do nothing.")
 
   }
 }
