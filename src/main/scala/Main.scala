@@ -63,6 +63,12 @@ class ArrayNode[A] extends AnyNode[Array[A]] with CalculatedNode {
   override def toString = defaultToString("ArrayNode")
 }
 
+class InputArrayNode[A] extends AnyNode[Array[A]] with InputNode[Array[A]] {
+  def asOutput = new OutArrayNode[Array[A]]
+
+  override def toString = defaultToString("ArrayNode")
+}
+
 class OutArrayNode[A] extends AnyNode[Array[A]] with OutputNode[Array[A]] {
   def saveToFile(path: String, dat: Array[A]): Unit = {
 
@@ -303,6 +309,7 @@ class Pipeline[+A](val graph: Defs.G) {
       case "image" => new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
       case "rowdata" => new RowData()
       case "[path]" => new ArrayNode[String]()
+      case "path" => new FilePath
     }
     //    graph.addNode(n)
     //    graph.addNode(n2)
@@ -330,6 +337,19 @@ class Pipeline[+A](val graph: Defs.G) {
   }
 
   def map[A, B](func: SimpleOp1[A, B]): Pipeline[ArrayNode[B]] = {
+    val n = getSingleOutput
+    val m = new Map1Node(func)
+    graph.addEdge(n, m)
+    graph.addEdge(m, new ArrayNode[B])
+    this.asInstanceOf[Pipeline[ArrayNode[B]]]
+  }
+
+  sealed abstract class IsSameType[X, Y]
+  object IsSameType {
+    implicit def tpEquals[A] = new IsSameType[A, A]{}
+  }
+
+  def mapmap[A1, B](func: SimpleOp1[A1, B])(implicit ev: A <:< ArrayNode[A1]): Pipeline[ArrayNode[B]] = {
     val n = getSingleOutput
     val m = new Map1Node(func)
     graph.addEdge(n, m)

@@ -84,12 +84,23 @@ class MapNodeSpec extends FlatSpec with Matchers {
   "Multiple ROIs for each file" should "compose" in {
     val list = new FilePath
     val roi = new InputRoi
+    val rois = new InputArrayNode[(Int,Int,Int,Int)]
     val entry = new FilePath
     val proc_entry = Pipeline.start(entry).then(imload).then2(statroi, roi).end().interface(entry,roi)
-    val roi_of_slice = Pipeline.start(entry).then2(selectRois,roi).end().interface(entry,roi)
+    val roi_of_slice = Pipeline.start(entry).then2(selectRois,rois).end().interface(entry,rois)
     val getstats_roi: CompleteCalc = Pipeline.start(list).then(readLines).map2(proc_entry,roi).end().interface(list,roi)
     val res = getstats_roi.run(("./testimgs/list.txt", (0,0,100,100)))(0).asInstanceOf[Array[Any]]
     res.length shouldEqual 2
+  }
+
+  "Double map" should "be typed" in {
+    val identity = new SimpleOp1[Path, Path]("identity",(p: Path) => p,("path","path"))
+    val duplicate = new SimpleOp1[Path, Array[Path]]("duplicate",(p: Path) => Array(p,p,p),("path","[path]"))
+    val duplicate2 = new SimpleOp1[Array[Path], Array[Path]]("duplicate2",(p: Array[Path]) => Array(p,p,p).flatten,("[path]","[path]"))
+    val path = new FilePath
+    val op = Pipeline.start(path).then(duplicate).map(duplicate).mapmap(duplicate2).end().interface(path)
+    val res = op.run("test")
+    res
   }
 
 
