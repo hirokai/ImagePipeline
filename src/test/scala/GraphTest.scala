@@ -7,11 +7,13 @@ import org.scalatest.FlatSpec
 import org.scalatest._
 
 
-import scalax.io.{Codec, Resource, Output}
+import scalax.io.{Input, Codec, Resource, Output}
 import Defs._
 import scala.util.Random
+import funcs._
 
 class SetSpec extends FlatSpec with Matchers {
+  import imagepipeline.funcs._
 
   "getstats" should "not cause error" in {
     import Defs._
@@ -26,7 +28,7 @@ class SetSpec extends FlatSpec with Matchers {
     for (i <- 0 until 10) {
       val pos = (rng.nextInt(300), rng.nextInt(300), rng.nextInt(300), rng.nextInt(300))
       printf("Repeating: %d\n", i)
-      val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then1(statroi, roi).output().interface(file_path, roi)
+      val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then2(statroi, roi).end().interface(file_path, roi)
       val res = Pipeline.run(getstats_roi, ("./testimgs/BF.tif", pos))
 
       res.length shouldBe 1
@@ -53,18 +55,43 @@ class SetSpec extends FlatSpec with Matchers {
 
 }
 
-class MapNodeSpec extends FlatSpec {
+class MapNodeSpec extends FlatSpec with Matchers {
   "map" should "be composable" in {
     val filelist = new InputFileList()
-    val a: CompleteCalc = Pipeline.start(filelist).map(imload).output().interface(filelist)
+    val a: CompleteCalc = Pipeline.start(filelist).map(imload).end().interface(filelist)
     a.verify()
   }
 
   it should "run" in {
     val filelist = new InputFileList()
-    val a: CompleteCalc = Pipeline.start(filelist).map(imload).output().interface(filelist)
-    a.run(Tuple1(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif")))
+    val a: CompleteCalc = Pipeline.start(filelist).map(imload).end().interface(filelist)
+    val res = a.run(Tuple1(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif")))(0).asInstanceOf[Array[Any]]
+    res(0).asInstanceOf[ImageProcessor]
+    res(1).asInstanceOf[ImageProcessor]
   }
+
+  "InputFileListFromSource" should "compose" in {
+    import imagepipeline.funcs._
+
+    val input_file = "./testimgs/list.txt"
+    val list = new FilePath
+    val a: CompleteCalc = Pipeline.start(list).then(readLines).map(imload).end().interface(list)
+    val res = a.run(Tuple1(input_file))(0).asInstanceOf[Array[Any]]
+    val input: Input = Resource.fromFile(input_file)
+    res.length shouldEqual input.string(Codec.UTF8).lines.toArray.length
+  }
+
+  "Multiple ROIs for each file" should "compose" in {
+    val list = new FilePath
+    val roi = new InputRoi
+    val entry = new FilePath
+    val proc_entry = Pipeline.start(entry).then(imload).then2(statroi, roi).end().interface(entry,roi)
+    val roi_of_slice = Pipeline.start(entry).then2(selectRois,roi).end().interface(entry,roi)
+    val getstats_roi: CompleteCalc = Pipeline.start(list).then(readLines).map2(proc_entry,roi).end().interface(list,roi)
+    val res = getstats_roi.run(("./testimgs/list.txt", (0,0,100,100)))(0).asInstanceOf[Array[Any]]
+    res.length shouldEqual 2
+  }
+
 
 }
 

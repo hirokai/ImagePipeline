@@ -1,0 +1,2 @@
+/Users/hiroyuki/repos/ImagePipeline/testimgs/BF.tif
+/Users/hiroyuki/repos/ImagePipeline/testimgs/Cy5.tif
