@@ -63,7 +63,7 @@ class MapNodeSpec extends FlatSpec {
   it should "run" in {
     val filelist = new InputFileList()
     val a: CompleteCalc = Pipeline.start(filelist).map(imload).output().interface(filelist)
-    a.run(Tuple1(Array("./testimgs/BF.jpg", "./testimgs/Cy5.jpg")))
+    a.run(Tuple1(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif")))
   }
 
 }
