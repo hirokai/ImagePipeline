@@ -1,3 +1,6 @@
+package imagepipeline.Test
+
+import imagepipeline._
 import ij.IJ
 import ij.process.ImageProcessor
 import org.scalatest.FlatSpec
@@ -7,11 +10,7 @@ import Defs._
 
 class SetSpec extends FlatSpec {
 
-  "An empty Set" should "have size 0" in {
-    assert(Set.empty.size == 0)
-  }
-
-  it should "not cause error" in {
+  "getstats" should "not cause error" in {
     import Defs._
     getstats.verify()
     val res = Pipeline.run(getstats, Tuple1("/Users/hiroyuki/repos/ImagePipeline/BF.jpg"))
@@ -21,9 +20,14 @@ class SetSpec extends FlatSpec {
 
   "getstats_roi" should "be fine" in {
     import Defs._
-    getstats_roi.verify()
-    val res = Pipeline.run(getstats_roi, ("/Users/hiroyuki/repos/ImagePipeline/BF.jpg", (0,0,300,300)))
-    println(res.mkString(","))
+    for(i <- 0 until 10){
+      printf("Repeating: %d\n",i)
+      val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then1(statroi, roi).output().interface(file_path, roi)
+      println(getstats_roi)
+      getstats_roi.verify()
+      val res = Pipeline.run(getstats_roi, ("/Users/hiroyuki/repos/ImagePipeline/BF.jpg", (0,0,300,300)))
+      println(res.mkString(","))
+    }
   }
 
   "Crop and combine" should "be fine" in {
@@ -59,3 +63,4 @@ class MapNodeSpec extends FlatSpec {
   }
 
 }
+

@@ -1,3 +1,5 @@
+package imagepipeline
+
 import java.io.File
 
 import ij.{IJ, ImagePlus}
@@ -313,54 +315,52 @@ class Pipeline[A <: AnyNode](val graph: Defs.G) {
     assert(ns(0).isInstanceOf[CalculatedNode] ||
       ns(0).isInstanceOf[Map1Node[_, _]] ||
       ns(0).isInstanceOf[ArrayNode[_]], ns(0))
-    outputSet = true
-    graph.replaceNode(ns(0), ns(0).asInstanceOf[CalculatedNode].asOutput)
+    val o = ns(0).asInstanceOf[CalculatedNode].asOutput
+    graph.replaceNode(ns(0), o)
+    outputs = Array(o)
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
   def interface(ins: InputNode[_]*): Pipeline[A] = {
-    assert(outputSet)
+    assert(outputs != null)
     assert(ins.length == graph.startingNodes.length)
 
-    // sort tsort_order for input nodes, so that input will match with args.
-    val ins2 = ins.map(_.asInstanceOf[AnyNode])
-    val ns = ins2.map(_.tsort_order).toSeq.sorted
-    ns.zip(ins2).map(a => a._2.tsort_order = a._1)
-    interfaceSet = true
+//    // sort tsort_order for input nodes, so that input will match with args.
+//    val ins2 = ins.map(_.asInstanceOf[AnyNode])
+//    val ns = ins2.map(_.tsort_order).toSeq.sorted
+//    ns.zip(ins2).map(a => a._2.tsort_order = a._1)
+    inputs = ins.toArray
+//    interfaceSet = true
 
     this
   }
+
+  var inputs: Array[AnyNode] = _
+  var outputs: Array[AnyNode] = _
 
   def interface[In <: Product, Out <: Product](ins: In, outs: Out = null): Pipeline[Nothing] = {
     assert(ins.productArity == graph.startingNodes.length)
     assert(outs == null || outs.productArity == graph.terminalNodes.length)
 
-    // sort tsort_order for input nodes, so that input will match with args.
-    val ins2 = ins.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
-    val ns = ins2.map(_.tsort_order).toSeq.sorted
-    ns.zip(ins2).map(a => a._2.tsort_order = a._1)
+    inputs = ins.productIterator.toArray.map(_.asInstanceOf[AnyNode])
 
     if (outs != null) {
-      //same for output
-      val outs2 = outs.productIterator.toSeq.map(_.asInstanceOf[AnyNode])
-      val ns2 = outs2.map(_.tsort_order).toSeq.sorted
-      ns2.zip(ins2).map(a => a._2.tsort_order = a._1)
-    } else if (!outputSet) {
+      outputs = outs.productIterator.toArray.map(_.asInstanceOf[AnyNode])
+    } else if (outputs == null) {
       throw new Exception("No output set.")
     }
-    interfaceSet = true
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
-  var interfaceSet: Boolean = false
-  var outputSet: Boolean = false
+//  var interfaceSet: Boolean = false
+//  var outputSet: Boolean = false
 
   def verify(ins: Array[String], outs: Array[String]): Unit = {
     verify()
   }
 
   def verify(): Unit = {
-    if (!interfaceSet)
+    if (inputs == null || outputs == null)
       throw new Exception("Input and output should be set before run by interface() method.")
     val sorted: Iterable[AnyNode] = graph.tsort
     var count = 0
@@ -419,7 +419,7 @@ object Pipeline {
     val sorted = calc.graph.tsort
     val values = new mutable.HashMap[String, Any] //(calc.graph.nodes.length)
 
-    val ins: Array[AnyNode] = sorted.filter(_.isInstanceOf[InputNode[_]]).toSeq.sortBy(_.tsort_order).toArray
+    val ins: Array[AnyNode] = calc.inputs
     println(ins.mkString)
     if (ins.length != args.productArity) {
       throw new IllegalArgumentException("Arity does not match.")
@@ -457,6 +457,7 @@ object Pipeline {
           val res = c match {
             case c: Calc1 => {
               assert(params.length == 1)
+              println("%s.run(%s)".format(c,params(0)))
               c.run(values(params(0).id))
             }
             case c: Calc2 => {
