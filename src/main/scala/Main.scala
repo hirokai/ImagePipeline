@@ -357,7 +357,7 @@ class Pipeline[+A](val graph: Defs.G) {
     this.asInstanceOf[Pipeline[ArrayNode[B]]]
   }
 
-  def map[A, B](func: Pipeline[Nothing]): Pipeline[ArrayNode[B]] = {
+  def map[A1, B](func: Pipeline[Nothing])(implicit ev: A <:< ArrayNode[A1]): Pipeline[ArrayNode[B]] = {
     val n = getSingleOutput
     val m = new Map1NodeP(func)
     graph.addEdge(n, m)
