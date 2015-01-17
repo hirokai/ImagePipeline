@@ -79,10 +79,10 @@ object Defs {
   val bf = new InputImg("/Users/hiroyuki/repos/ImagePipeline/BF.jpg")
   val cy5 = new InputImg("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg")
   val roi = new InputRoi("cropping")
-  val a: Pipeline21[ImageProcessor,(Int,Int,Int,Int),ImageProcessor] = start(bf).then2(crop, roi).then(autocontrast)
+  val a: Pipeline21[ImageProcessor,Roi,ImageProcessor] = start(bf).then2(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then2(crop, roi).then(autocontrast)
   val outimg = new OutputImg("result final.tiff", "Result")
-  val cropAndCombine: Pipeline31[ImageProcessor,ImageProcessor,Roi,ImageProcessor] = Pipeline.cont2(combine2, a, b).end()
+  val cropAndCombine: Pipeline41[ImageProcessor,Roi,ImageProcessor,Roi,ImageProcessor] = Pipeline.cont2(combine2, a, b).end().inputOrder(bf,roi,cy5,roi)
 //  cropAndCombine.verify(Array(bf.id, cy5.id), Array())
 
 
@@ -92,6 +92,6 @@ object Defs {
 
   val getstats: Pipeline11[Path,RowData] = start(file_path).then(imload).then(stat).end()
 
-  val getstats_roi: Pipeline21[Path,(Int,Int,Int,Int),RowData] = start(file_path).then(imload).then2(statroi, roi).end()
+  val getstats_roi: Pipeline21[Path,Roi,RowData] = start(file_path).then(imload).then2(statroi, roi).end()
 
 }

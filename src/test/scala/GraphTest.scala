@@ -43,7 +43,7 @@ class BasicSpec extends FlatSpec with Matchers {
       val g = cropAndCombine
       val img1 = IJ.openImage("./testimgs/BF.jpg").getProcessor
       val img2 = IJ.openImage("./testimgs/Cy5.jpg").getProcessor
-      val res = g.run(img1, img2, (0, 0, 400, 300))
+      val res = g.run(img1, (0, 0, 400, 300), img2, (0, 0, 400, 300))
       println(res)
       Seq("rm", "test.dot").mkString(" ").!
       val output: Output = Resource.fromFile("test.dot")
