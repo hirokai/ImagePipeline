@@ -69,8 +69,7 @@ class MapNodeSpec extends FlatSpec with Matchers {
     val filelist = new InputFileList()
     val a: Pipeline11[Array[Path], Array[ImageProcessor]] = start(filelist).map(imload).end()
     a.verify()
-    // FIXME: this causes error because asInstanceOf does not work for Array[_].
-    // See: http://stackoverflow.com/questions/6686992/scala-asinstanceof-with-parameterized-types
+    // For why you need runA, see: http://stackoverflow.com/questions/6686992/scala-asinstanceof-with-parameterized-types
     val res: Array[ImageProcessor] = a.runA(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif")).toArray
     println(res)
   }
@@ -103,19 +102,15 @@ class MapNodeSpec extends FlatSpec with Matchers {
     val path = new FilePath
     val numbers = new InputArrayNode[Int]
 
-    op = start(path).then(duplicate).map(strLength).mapmap(numX2).end()
     op2 = start(path).then(duplicate).map(strLength -> numX2).end()
     op3 = start(numbers).map(numX2).end()
   }
 
   it should "run" in {
-    val res = op.run("test").asInstanceOf[Array[_]].deep
     val res2 = op2.run("test").asInstanceOf[Array[_]].deep
     val res3 = op3.runA(Array(1, 2, 3, 4): Array[Int]).toArray
     println(res3.deep)
-    println(res.mkString(","))
     println(res2.mkString(","))
-    assert(res == res2)
   }
 
   var getstats_roi: Pipeline21[Path, Roi, Array[RowData]] = _

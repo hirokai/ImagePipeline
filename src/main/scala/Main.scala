@@ -90,18 +90,6 @@ class Map1Node[A, B](val func: Calc1[A, B]) extends CalcNode {
   override def toString = defaultToString("MapNode")
 }
 
-//class Map1NodeP[A,B](val func: Pipeline11[A,B]) extends CalcNode {
-//  override def inputTypes(): Array[String] = {
-//    Array()
-//  }
-//
-//  override def outputTypes(): Array[String] = {
-//    Array()
-//  }
-//
-//  override def toString = defaultToString("MapNodeP")
-//}
-
 class Map2Node[A1, A2, B](val func: Calc2[A1, A2, B]) extends CalcNode {
   override def inputTypes(): Array[String] = {
     Array()
@@ -310,112 +298,28 @@ class FilePath extends InputNode[String] {
 
 trait Pipeline {
   var inputs: Array[InputNode[_]] = _
-  var outputs: Array[InputNode[_]] = _
-}
+  var outputs: Array[OutputNode[_]] = _
+  def inputTypes: Array[String]
+  def outputTypes: Array[String]
 
-class Pipeline41[-A1, -A2, -A3, -A4, +B](val graph: Graph[AnyNode[_]]) extends Calc4[A1, A2, A3, A4, B] with Pipeline {
-  def run(p1: A1, p2: A2, p3: A3, p4: A4): B = {
-    ???
-  }
-  def inputOrder(ns: InputNode[_]*): Pipeline41[A1, A2, A3, A4, B] = {
-    val ins: Map[String,InputNode[_]] = graph.startingNodes.map(n => n.id -> n.asInstanceOf[InputNode[_]]).toMap
-    inputs = ns.toArray.map(n => ins(n.id))
-    this
-  }
+  def verify(): Unit = {
+    if (inputs == null || outputs == null)
+      throw new Exception("Input and output should be set before run by interface() method.")
 
-  def end() = this
-  def inputTypes: Array[String] = ???
-
-  def outputTypes: Array[String] = ???
-}
-
-class Pipeline31[-A1, -A2, -A3, +B](val graph: Graph[AnyNode[_]]) extends Calc3[A1, A2, A3, B] {
-  def run(p1: A1, p2: A2, p3: A3): B = {
-    ???
-  }
-
-  def end() = {
-    this
-  }
-
-  def inputTypes: Array[String] = ???
-
-  def outputTypes: Array[String] = ???
-}
-
-class Pipeline21[-A1, -A2, +B](val graph: Graph[AnyNode[_]]) extends Calc2[A1, A2, B] {
-  def run(p1: A1, p2: A2): B = {
-    val values = new mutable.HashMap[String, Any]
-    doRun(values, p1, p2)
-    values(this.outputs(0).id).asInstanceOf[B]
-  }
-
-  def runA[C](p1: A1, p2: A2)(implicit ev: B <:< Array[C]): Seq[C] = {
-    val values = new mutable.HashMap[String, Any]
-    doRun(values, p1, p2)
-    val v = values(this.outputs(0).id)
-    println(v)
-    v.asInstanceOf[Array[Object]].toSeq.map(_.asInstanceOf[C])
-  }
-
-  def doRun(values: mutable.HashMap[String, Any], p1: A1, p2: A2): Unit = {
-    val sorted = graph.tsort
-    assert(inputs.length == 2 && outputs.length == 1)
-    values(inputs(0).id) = p1
-    values(inputs(1).id) = p2
-    println(sorted.mkString(","))
-    for (node <- sorted if values.get(node.id).isEmpty) {
-      node match {
-        case _: DataNode[_] => {
-          val node_inputs = graph.predecessors(node)
-          assert(node_inputs.length == 1)
-          values(node.id) = Pipeline.calc_prev(graph, values, node_inputs(0).asInstanceOf[CalcNode[_]])
-        }
-        case _ =>
-      }
-    }
-  }
-
-
-  def inputTypes: Array[String] = ???
-
-  def outputTypes: Array[String] = ???
-
-  def end(): Pipeline21[A1, A2, B] = {
-    outputs = graph.terminalNodes
-    this
-  }
-
-  def inputOrder(ns: DataNode[_]*): Pipeline21[A1, A2, B] = {
-    val ins = graph.startingNodes.map(n => n.id -> n).toMap
-    inputs = ns.toArray.map(n => ins(n.id))
-    this
-  }
-
-  var inputs: Array[AnyNode[_]] = _
-  var outputs: Array[AnyNode[_]] = _
-
-  def then[C](node: Calc1[B, C]): Pipeline21[A1, A2, C] = {
-    val graph = this.graph
-    val n = graph.terminalNodes(0)
-    graph.addEdge(n, node)
-    val out = new ImgNode() //FIXME: This can be other types.
-    graph.addEdge(node, out)
-    new Pipeline21(graph)
+//    import scalax.io.Codec
+//    import scalax.io.JavaConverters._
+//    implicit val codec = Codec.UTF8
+//    new java.io.File("test.dot").asOutput.write(graph.toDot)
   }
 }
 
-class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] {
+class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] with Pipeline {
   def inputTypes: Array[String] = ???
-
   def outputTypes: Array[String] = ???
 
   def then[C](node: ImgOp1[B, C]): Pipeline11[A, C] = {
     val graph = this.graph.copy
     val ns = graph.terminalNodes
-    //    println(ns)
-    //    assert(ns.length == 1)
-    //    println(ns(0))
     val n: ImgOp1[A, B] = node.copy().asInstanceOf[ImgOp1[A, B]]
     val n2: AnyNode[_] = node.outputTypes()(0) match {
       case "image" => new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
@@ -463,15 +367,6 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] {
     new Pipeline11(graph)
   }
 
-  def mapmap[C, D](func: SimpleOp1[C, D])(implicit ev: B <:< Array[C]): Pipeline11[A, Array[D]] = {
-    val graph = this.graph
-    val n = getSingleOutput
-    val m = new Map1Node(func)
-    graph.addEdge(n, m)
-    graph.addEdge(m, new ArrayNode[B])
-    new Pipeline11(graph)
-  }
-
   def map2[C, D, E](func: Pipeline21[C, D, E], param: DataNode[D])(implicit ev: B <:< Array[C]): Pipeline21[A, D, Array[E]] = {
     val graph = this.graph
     val n = getSingleOutput
@@ -500,32 +395,9 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] {
 
     //If only one input, set inputs automatically (so interface() does not need to be called.)
     if (graph.startingNodes.length == 1) {
-      inputs = graph.startingNodes
+      inputs = graph.startingNodes.map(_.asInstanceOf[InputNode[_]])
     }
     this.asInstanceOf[Pipeline11[A, B]]
-  }
-
-  var inputs: Array[AnyNode[_]] = _
-  var outputs: Array[AnyNode[_]] = _
-
-  def verify(ins: Array[String], outs: Array[String]): Unit = {
-    verify()
-  }
-
-  def verify(): Unit = {
-    if (inputs == null || outputs == null)
-      throw new Exception("Input and output should be set before run by interface() method.")
-    val sorted: Iterable[AnyNode[_]] = graph.tsort
-    var count = 0
-    for (n <- sorted) {
-      n.tsort_order = count
-      count += 1
-    }
-
-    import scalax.io.Codec
-    import scalax.io.JavaConverters._
-    implicit val codec = Codec.UTF8
-    new java.io.File("test.dot").asOutput.write(graph.toDot)
   }
 
   def runA[C](param: A)(implicit ev: B <:< Array[C]): Seq[C] = {
@@ -559,18 +431,105 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] {
     val v = values(this.outputs(0).id)
     v.asInstanceOf[B]
   }
+}
 
-  //
-  //          val res = c match {
-  //            case c: Map2Node[_,_,_] => {
-  //              val ins = calc.graph.predecessors(c)
-  //              assert(ins.length == 2)
-  //              println(ins(0))
-  //              val vs = values(ins(0).id)
-  //              println(vs)
-  //              println("calc inputs:"+c.func.inputs.mkString(","))
-  //              vs.asInstanceOf[Array[_]].map(v => c.func.run(v,values(ins(1).id)))
-  //            }
+class Pipeline21[-A1, -A2, +B](val graph: Graph[AnyNode[_]]) extends Calc2[A1, A2, B] with Pipeline {
+  def run(p1: A1, p2: A2): B = {
+    val values = new mutable.HashMap[String, Any]
+    doRun(values, p1, p2)
+    println(values)
+    values(this.outputs(0).id).asInstanceOf[B]
+  }
+
+  def runA[C](p1: A1, p2: A2)(implicit ev: B <:< Array[C]): Seq[C] = {
+    val values = new mutable.HashMap[String, Any]
+    doRun(values, p1, p2)
+    val v = values(this.outputs(0).id)
+    println(v)
+    v.asInstanceOf[Array[Object]].toSeq.map(_.asInstanceOf[C])
+  }
+
+  def doRun(values: mutable.HashMap[String, Any], p1: A1, p2: A2): Unit = {
+    val sorted = graph.tsort
+    assert(inputs.length == 2 && outputs.length == 1)
+    values(inputs(0).id) = p1
+    values(inputs(1).id) = p2
+    println(sorted.mkString(","))
+    for (node <- sorted if values.get(node.id).isEmpty) {
+      node match {
+        case _: DataNode[_] => {
+          val node_inputs = graph.predecessors(node)
+          assert(node_inputs.length == 1)
+          values(node.id) = Pipeline.calc_prev(graph, values, node_inputs(0).asInstanceOf[CalcNode[_]])
+        }
+        case _ =>
+      }
+    }
+  }
+
+  def end(): Pipeline21[A1, A2, B] = {
+    val ns = graph.terminalNodes
+    assert(ns.length == 1, ns.mkString)
+    assert(ns(0).isInstanceOf[CalculatedNode[B]] ||
+      ns(0).isInstanceOf[Map1Node[_, _]] ||
+      ns(0).isInstanceOf[ArrayNode[_]], ns(0))
+    val o = ns(0).asInstanceOf[CalculatedNode[B]].asOutput
+    graph.replaceNode(ns(0), o)
+    outputs = Array(o)
+
+    //If only one input, set inputs automatically (so interface() does not need to be called.)
+    if (graph.startingNodes.length == 1) {
+      inputs = graph.startingNodes.map(_.asInstanceOf[InputNode[_]])
+    }
+    this
+  }
+
+  def inputOrder(ns: DataNode[_]*): Pipeline21[A1, A2, B] = {
+    val ins = graph.startingNodes.map(n => n.id -> n.asInstanceOf[InputNode[_]]).toMap[String,InputNode[_]]
+    inputs = ns.toArray.map(n => ins(n.id))
+    this
+  }
+
+  def then[C](node: Calc1[B, C]): Pipeline21[A1, A2, C] = {
+    val graph = this.graph
+    val n = graph.terminalNodes(0)
+    graph.addEdge(n, node)
+    val out = new ImgNode() //FIXME: This can be other types.
+    graph.addEdge(node, out)
+    new Pipeline21(graph)
+  }
+
+  def inputTypes(): Array[String] = ???
+  def outputTypes(): Array[String] = ???
+}
+
+class Pipeline31[-A1, -A2, -A3, +B](val graph: Graph[AnyNode[_]]) extends Calc3[A1, A2, A3, B] {
+  def run(p1: A1, p2: A2, p3: A3): B = {
+    ???
+  }
+
+  def end() = {
+    this
+  }
+
+  def inputTypes: Array[String] = ???
+  def outputTypes: Array[String] = ???
+}
+
+class Pipeline41[-A1, -A2, -A3, -A4, +B](val graph: Graph[AnyNode[_]]) extends Calc4[A1, A2, A3, A4, B] with Pipeline {
+  def run(p1: A1, p2: A2, p3: A3, p4: A4): B = {
+    ???
+  }
+  def inputOrder(ns: InputNode[_]*): Pipeline41[A1, A2, A3, A4, B] = {
+    val ins: Map[String,InputNode[_]] = graph.startingNodes.map(n => n.id -> n.asInstanceOf[InputNode[_]]).toMap
+    inputs = ns.toArray.map(n => ins(n.id))
+    this
+  }
+
+  def end() = this
+  def inputTypes: Array[String] = ???
+
+  def outputTypes: Array[String] = ???
 }
 
 object Pipeline {
@@ -626,7 +585,6 @@ object Pipeline {
     new Pipeline41(newg)
   }
 
-
   def calc_prev[A1, A2, C, D: ClassTag](graph: Graph[AnyNode[_]], values: mutable.HashMap[String, Any], node: CalcNode[_]): C = {
     val ins = graph.predecessors(node)
     node match {
@@ -653,8 +611,6 @@ object Pipeline {
   }
 
   type Roi = (Int, Int, Int, Int)
-
-
 }
 
 // DiGraph, no parallel edges.
