@@ -17,7 +17,6 @@ class BasicSpec extends FlatSpec with Matchers {
   import Pipeline._
 
   "getstats" should "not cause error" in {
-    import Defs._
     val res = getstats.run("./testimgs/BF.tif")
     assert(res.isInstanceOf[RowData])
     println(res)
@@ -30,9 +29,9 @@ class BasicSpec extends FlatSpec with Matchers {
     for (i <- 0 until 10) {
       val pos = (rng.nextInt(300), rng.nextInt(300), rng.nextInt(300), rng.nextInt(300))
       printf("Repeating: %d\n", i)
-      val getstats_roi: Pipeline21[Path,Roi,RowData] = start(file_path).then(imload).then2(statroi, roi).end()
+      val getstats_roi: Pipeline21[Path,Roi,RowData] = start(file_path).then(imload).then2(statroi, roi).end().inputOrder(file_path,roi)
       val res = getstats_roi.run("./testimgs/BF.tif", pos)
-
+      println(res)
       res.isInstanceOf[RowData] shouldBe true
     }
   }
@@ -67,8 +66,9 @@ class MapNodeSpec extends FlatSpec with Matchers {
   it should "run" in {
     val filelist = new InputFileList()
     val a: Pipeline11[Array[Path],Array[ImageProcessor]] = start(filelist).map(imload).end()
-    val res = a.run(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif"))
-    println(res.deep)
+    a.verify()
+    val res: Array[ImageProcessor] = a.run(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif"))
+    println(res)
   }
 
   "InputFileListFromSource" should "compose" in {
@@ -95,10 +95,10 @@ class MapNodeSpec extends FlatSpec with Matchers {
     val op = start(path).then(duplicate).map(strLength).mapmap(numX2).end()
 
     val op2 = start(path).then(duplicate).map(strLength->numX2).end()
-    val op3 = start(numbers).map(numX2).end()
+    val op3: Pipeline11[Array[Int],Array[Int]] = start(numbers).map(numX2).end()
     val res = op.run("test").asInstanceOf[Array[_]].deep
     val res2 = op2.run("test").asInstanceOf[Array[_]].deep
-    val res3 = op3.run(Array(1,2,3,4))
+    val res3 = op3.run(Array(1,2,3,4): Array[Int])
     println(res3.deep)
     println(res.mkString(","))
     println(res2.mkString(","))

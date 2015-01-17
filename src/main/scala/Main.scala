@@ -29,7 +29,7 @@ class AnyNode[+Value](val name: String = "", val id: String = IDGen.gen_new_id()
   }
 }
 
-abstract class CalcNode extends AnyNode[AnyRef] {
+abstract class CalcNode[+A] extends AnyNode[A] {
   def inputTypes(): Array[String]
 
   def outputTypes(): Array[String]
@@ -163,19 +163,19 @@ class ImgNode(id: String = IDGen.gen_new_id(), name: String = "", imgtyp: String
   }
 }
 
-trait Calc1[-A,+B] {
+abstract class Calc1[-A,+B] extends CalcNode[A => B] {
   def run(p: A): B
 }
 
-trait Calc2[-A1,-A2,+B] {
+trait Calc2[-A1,-A2,+B] extends CalcNode[(A1,A2)=>B] {
   def run(p: A1, p2: A2): B
 }
 
-trait Calc3[-A1,-A2,-A3,+B] {
+trait Calc3[-A1,-A2,-A3,+B] extends CalcNode[(A1,A2,A3)=>B] {
   def run(p: A1, p2: A2,p3:A3): B
 }
 
-abstract class ImgOp1[-A, +B](id: String = IDGen.gen_new_id(), name: String = "") extends CalcNode with Calc1[A,B] {
+abstract class ImgOp1[-A, +B](id: String = IDGen.gen_new_id(), name: String = "") extends Calc1[A,B] {
   override val typ = "imgop"
 
   override def toString(): String = {
@@ -183,7 +183,7 @@ abstract class ImgOp1[-A, +B](id: String = IDGen.gen_new_id(), name: String = ""
   }
 }
 
-abstract class ImgOp2[-A1, -A2, +B](id: String = IDGen.gen_new_id(), name: String = "") extends CalcNode with Calc2[A1,A2,B] {
+abstract class ImgOp2[-A1, -A2, +B](id: String = IDGen.gen_new_id(), name: String = "") extends Calc2[A1,A2,B] {
   override val typ = "imgop"
 
   override def toString(): String = {
@@ -307,20 +307,61 @@ class Pipeline31[-A1,-A2,-A3,+B](val graph: Graph[AnyNode[_]]) extends Calc3[A1,
   def run(p1: A1, p2: A2, p3: A3): B = {
     ???
   }
-  def end() = {???}
+  def end() = {
+    this
+  }
+  def inputTypes: Array[String] = ???
+  def outputTypes: Array[String] = ???
 }
 
 class Pipeline21[-A1,-A2,+B](val graph: Graph[AnyNode[_]]) extends Calc2[A1,A2,B]{
-  def run(p1: A1, p2: A2) = ???
+  def run(p1: A1, p2: A2) = {
+    assert(inputs != null && outputs != null)
+    val sorted = graph.tsort
+    val values = new mutable.HashMap[String,Any]
+    values(inputs(0).id) = p1
+    values(inputs(1).id) = p2
+    for(node <- sorted if values.get(node.id).isEmpty) {
+      node match {
+        case _:DataNode[_] => {
+          val node_inputs = graph.predecessors(node)
+          assert(node_inputs.length == 1)
+          values(node.id) = Pipeline.calc_prev(graph, values, node_inputs(0).asInstanceOf[CalcNode[_]])
+        }
+        case _ =>
+      }
+    }
+    values(this.outputs(0).id).asInstanceOf[B]
+  }
+  def inputTypes: Array[String] = ???
+  def outputTypes: Array[String] = ???
   def end(): Pipeline21[A1,A2,B] = {
+    outputs = graph.terminalNodes
     this
   }
+  def inputOrder(ns: DataNode[_]*): Pipeline21[A1,A2,B] = {
+    val ins = graph.startingNodes.map(n => n.id -> n).toMap
+    inputs = ns.toArray.map(n => ins(n.id))
+    this
+  }
+  var inputs: Array[AnyNode[_]] = _
+  var outputs: Array[AnyNode[_]] = _
 
-  def then[C](node: Calc1[B,C]): Pipeline21[A1,A2,C] = ???
+  def then[C](node: Calc1[B,C]): Pipeline21[A1,A2,C] = {
+    val graph = this.graph
+    val n = graph.terminalNodes(0)
+    graph.addEdge(n,node)
+    val out = new ImgNode()  //FIXME: This can be other types.
+    graph.addEdge(node,out)
+    new Pipeline21(graph)
+  }
 }
 
 class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A,B] {
+  def inputTypes: Array[String] = ???
+  def outputTypes: Array[String] = ???
   def then[C](node: ImgOp1[B, C]): Pipeline11[A,C] = {
+    val graph = this.graph.copy
     val ns = graph.terminalNodes
     //    println(ns)
     //    assert(ns.length == 1)
@@ -335,10 +376,11 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A,B] {
     graph.addEdge(ns(0), n)
     graph.addEdge(n, n2)
 
-    this.asInstanceOf[Pipeline11[A,C]]
+    new Pipeline11[A,C](graph)
   }
 
   def then2[A2, C](node: ImgOp2[B, A2, C], param: AnyNode[A2]): Pipeline21[A,A2,C] = {
+    val graph = this.graph.copy
     val ns = graph.terminalNodes
     val n: ImgOp2[B, A2, C] = node.copy().asInstanceOf[ImgOp2[B,A2,C]]
     val n2 = new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
@@ -350,40 +392,44 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A,B] {
     //    println(graph.toDot)
     //println(graph.nodes)
 
-    this.asInstanceOf[Pipeline21[A,A2,C]]
+    new Pipeline21[A,A2,C](graph)
   }
 
   def map[C,D](func: SimpleOp1[C,D])(implicit ev: B <:< Array[C]): Pipeline11[A,Array[D]] = {
+    val graph = this.graph.copy
     val n = getSingleOutput
     val m = new Map1Node(func)
     graph.addEdge(n, m)
     graph.addEdge(m, new ArrayNode[B])
-    this.asInstanceOf[Pipeline11[A,Array[D]]]
+    new Pipeline11(graph)
   }
 
   def map[C,D](func: Pipeline11[B,C])(implicit ev: C =:= Array[D]): Pipeline11[A,Array[C]] = {
+    val graph = this.graph.copy
     val n = getSingleOutput
     val m = new Map1Node(func)
     graph.addEdge(n, m)
     graph.addEdge(m, new ArrayNode[B])
-    this.asInstanceOf[Pipeline11[A,Array[C]]]
+    new Pipeline11(graph)
   }
 
   def mapmap[C,D](func: SimpleOp1[C,D])(implicit ev: B <:< Array[C]): Pipeline11[A,Array[D]] = {
+    val graph = this.graph
     val n = getSingleOutput
     val m = new Map1Node(func)
     graph.addEdge(n, m)
     graph.addEdge(m, new ArrayNode[B])
-    this.asInstanceOf[Pipeline11[A,Array[D]]]
+    new Pipeline11(graph)
   }
 
   def map2[C, D, E](func: Pipeline21[C,D,E], param: DataNode[D])(implicit ev: B <:< Array[C]): Pipeline21[A,D,Array[E]] = {
+    val graph = this.graph
     val n = getSingleOutput
     val m = new Map2Node(func)
     graph.addEdge(n, m)
     graph.addEdge(param.asInstanceOf[AnyNode[_]], m)
     graph.addEdge(m, new ArrayNode[B])
-    this.asInstanceOf[Pipeline21[A,D,Array[E]]]
+    new Pipeline21(graph)
   }
 
   def getSingleOutput: AnyNode[B] = {
@@ -437,12 +483,13 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A,B] {
     val sorted = graph.tsort
     val values = new mutable.HashMap[String,Any]
     values(inputs(0).id) = param
+    println(sorted.mkString(","))
     for(node <- sorted if values.get(node.id).isEmpty) {
       node match {
         case _:DataNode[_] => {
           val node_inputs = graph.predecessors(node)
           assert(node_inputs.length == 1)
-          values(node.id) = Pipeline.calc_prev(graph, values, node_inputs(0).asInstanceOf[CalcNode])
+          values(node.id) = Pipeline.calc_prev(graph, values, node_inputs(0).asInstanceOf[CalcNode[_]])
         }
         case _ =>
       }
@@ -500,7 +547,7 @@ object Pipeline {
     new Pipeline21(newg)
   }
 
-  def cont2[A, B1, B2, C1,C2, D, E](func: SimpleOp2[C1, C2, D], node: Pipeline21[A,B1,C1], node2: Pipeline21[A,B2,C2]): Pipeline31[A,B1,B2,D] = {
+  def cont2[A1, A2, B, C1,C2, D, E](func: SimpleOp2[C1, C2, D], node: Pipeline21[A1,B,C1], node2: Pipeline21[A2,B,C2]): Pipeline31[A1,A2,B,D] = {
     val newg = new Graph[AnyNode[_]]
     assert(node.graph.terminalNodes.length == 1)
     assert(node2.graph.terminalNodes.length == 1)
@@ -516,7 +563,7 @@ object Pipeline {
   }
 
 
-  def calc_prev[A1,A2,C,D: ClassTag](graph: Graph[AnyNode[_]], values: mutable.HashMap[String,Any], node: CalcNode): C = {
+  def calc_prev[A1,A2,C,D: ClassTag](graph: Graph[AnyNode[_]], values: mutable.HashMap[String,Any], node: CalcNode[_]): C = {
     val ins = graph.predecessors(node)
     node match {
       case n: Calc1[A1,C] =>{
@@ -543,6 +590,13 @@ object Pipeline {
 class Graph[A <: AnyNode[_] : ClassTag] {
   var edges: mutable.ArrayBuffer[(A, A, Int)] = mutable.ArrayBuffer[(A, A, Int)]()
   var nodes: mutable.ArrayBuffer[A] = mutable.ArrayBuffer[A]()
+
+  def copy: Graph[A] = {
+    val r = new Graph[A]
+    r.edges = edges.clone()
+    r.nodes = nodes.clone()
+    r
+  }
 
   def addNode(n: A): Unit = {
     nodes += n
