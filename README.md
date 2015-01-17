@@ -9,10 +9,21 @@
 
 Work in progress.
 
+## Examples of task definitions
+
+```scala
+import imagepipeline._
+val path = new FilePath
+val calc = start(path).then(autocontrast).then(blur).end()
+```
+
 ### Goals
 
-* Represent image processing tasks as a directed acyclic graph.
+* Represent image processing tasks as a directed acyclic graph with static type checking.
+* Composable tasks with type safety.
 * Separate algorithm and data/parameters to make image processing more reproducible and manageable.
+* Caching of intermediate results, and partial recalculation upon change of algorithm and/or input data using a dependency graph.
+* Reporing and visualization of task execution progress.
 * Interop with various softwares (Matlab, ImageJ, Igor, etc.)
 
 ## License
