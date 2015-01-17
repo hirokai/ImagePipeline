@@ -12,13 +12,15 @@ import Defs._
 import scala.util.Random
 import funcs._
 
-class SetSpec extends FlatSpec with Matchers {
+class BasicSpec extends FlatSpec with Matchers {
   import imagepipeline.funcs._
+  import Pipeline._
 
   "getstats" should "not cause error" in {
     import Defs._
-    val res = getstats.run(Tuple1("./testimgs/BF.tif"))
-    println(res.mkString(","))
+    val res = getstats.run("./testimgs/BF.tif")
+    assert(res.isInstanceOf[RowData])
+    println(res)
   }
 
 
@@ -28,11 +30,10 @@ class SetSpec extends FlatSpec with Matchers {
     for (i <- 0 until 10) {
       val pos = (rng.nextInt(300), rng.nextInt(300), rng.nextInt(300), rng.nextInt(300))
       printf("Repeating: %d\n", i)
-      val getstats_roi: CompleteCalc = Pipeline.start(file_path).then(imload).then2(statroi, roi).end().interface(file_path, roi)
-      val res = Pipeline.run(getstats_roi, ("./testimgs/BF.tif", pos))
+      val getstats_roi: Pipeline21[Path,Roi,RowData] = start(file_path).then(imload).then2(statroi, roi).end()
+      val res = getstats_roi.run("./testimgs/BF.tif", pos)
 
-      res.length shouldBe 1
-      res(0).isInstanceOf[RowData] shouldBe true
+      res.isInstanceOf[RowData] shouldBe true
     }
   }
 
@@ -40,10 +41,9 @@ class SetSpec extends FlatSpec with Matchers {
     def do_cropCombine(): Unit = {
       import scala.sys.process._
       val g = cropAndCombine
-      g.verify()
       val img1 = IJ.openImage("./testimgs/BF.jpg").getProcessor
       val img2 = IJ.openImage("./testimgs/Cy5.jpg").getProcessor
-      val res = Pipeline.run(g, (img1, img2, (0, 0, 400, 300)))(0).asInstanceOf[ImageProcessor]
+      val res = g.run(img1, img2, (0, 0, 400, 300))
       println(res)
       Seq("rm", "test.dot").mkString(" ").!
       val output: Output = Resource.fromFile("test.dot")
@@ -56,18 +56,19 @@ class SetSpec extends FlatSpec with Matchers {
 }
 
 class MapNodeSpec extends FlatSpec with Matchers {
+  import Pipeline._
+  
   "map" should "be composable" in {
     val filelist = new InputFileList()
-    val a: CompleteCalc = Pipeline.start(filelist).map(imload).end().interface(filelist)
+    val a: Pipeline11[Array[Path],Array[ImageProcessor]] = start(filelist).map(imload).end()
     a.verify()
   }
 
   it should "run" in {
     val filelist = new InputFileList()
-    val a: CompleteCalc = Pipeline.start(filelist).map(imload).end().interface(filelist)
-    val res = a.run(Tuple1(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif")))(0).asInstanceOf[Array[Any]]
-    res(0).asInstanceOf[ImageProcessor]
-    res(1).asInstanceOf[ImageProcessor]
+    val a: Pipeline11[Array[Path],Array[ImageProcessor]] = start(filelist).map(imload).end()
+    val res = a.run(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif"))
+    println(res.deep)
   }
 
   "InputFileListFromSource" should "compose" in {
@@ -75,8 +76,8 @@ class MapNodeSpec extends FlatSpec with Matchers {
 
     val input_file = "./testimgs/list.txt"
     val list = new FilePath
-    val a: CompleteCalc = Pipeline.start(list).then(readLines).map(imload).end().interface(list)
-    val res = a.run(Tuple1(input_file))(0).asInstanceOf[Array[Any]]
+    val a: Pipeline11[Path,Array[ImageProcessor]] = start(list).then(readLines).map(imload).end()
+    val res = a.run(input_file)
     val input: Input = Resource.fromFile(input_file)
     res.length shouldEqual input.string(Codec.UTF8).lines.toArray.length
   }
@@ -91,15 +92,10 @@ class MapNodeSpec extends FlatSpec with Matchers {
     val path = new FilePath
     val numbers = new InputArrayNode[Int]
 
-    val op = Pipeline.start(path).then(duplicate).map(strLength).mapmap(numX2).end()
+    val op = start(path).then(duplicate).map(strLength).mapmap(numX2).end()
 
-    a [ClassCastException] should be thrownBy {
-      val op = Pipeline.start(path).then(duplicate).map(numX2).end()
-      op.run("test")
-    }
-
-    val op2 = Pipeline.start(path).then(duplicate).map(strLength->numX2).end()
-    val op3 = Pipeline.start(numbers).map(numX2).end()
+    val op2 = start(path).then(duplicate).map(strLength->numX2).end()
+    val op3 = start(numbers).map(numX2).end()
     val res = op.run("test").asInstanceOf[Array[_]].deep
     val res2 = op2.run("test").asInstanceOf[Array[_]].deep
     val res3 = op3.run(Array(1,2,3,4))
@@ -112,13 +108,13 @@ class MapNodeSpec extends FlatSpec with Matchers {
   "Multiple ROIs for each file" should "compose" in {
     val list = new FilePath
     val roi = new InputRoi
-    val rois = new InputArrayNode[(Int,Int,Int,Int)]
+    val rois = new FilePath
     val entry = new FilePath
-    val proc_entry = Pipeline.start(entry).then(imload).then2(statroi, roi).end().interface(entry,roi)
-    val roi_of_slice = Pipeline.start(entry).then2(selectRois,rois).end().interface(entry,rois)
-    val getstats_roi: CompleteCalc = Pipeline.start(list).then(readLines).map2(proc_entry,roi).end().interface(list,roi)
-    val res = getstats_roi.run(("./testimgs/list.txt", (0,0,100,100)))(0).asInstanceOf[Array[Any]]
-    res.length shouldEqual 2
+    val proc_entry: Pipeline21[Path,Roi,RowData] = start(entry).then(imload).then2(statroi, roi).end()
+    val roi_of_slice: Pipeline21[Path,Path,Array[Roi]] = start(entry).then2(selectRois,rois).end()
+    val getstats_roi: Pipeline21[Path,Roi,Array[RowData]] = start(list).then(readLines).map2(proc_entry,roi).end()
+    val res = getstats_roi.run("./testimgs/list.txt", (0,0,100,100))
+    res.isInstanceOf[RowData] shouldBe true
   }
 
 }
