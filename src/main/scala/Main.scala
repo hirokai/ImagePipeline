@@ -191,10 +191,14 @@ abstract class ImgOp2[+A1, +A2, -B](id: String = IDGen.gen_new_id(), name: Strin
   }
 }
 
-class SimpleOp1[+A, -B](name: String, func: A => B, types: (String, String), id: String = IDGen.gen_new_id()) extends ImgOp1[A, B] with Calc1 {
+class SimpleOp1[A, B](name: String, val func: A => B, types: (String, String), id: String = IDGen.gen_new_id()) extends ImgOp1[A, B] with Calc1 {
   //  override val typ = "simpleop"
   def run(p1: Any): Any = {
     func(p1.asInstanceOf[A])
+  }
+
+  def ->[BB,C](other: SimpleOp1[BB,C])(implicit ev: BB <:< B): SimpleOp1[A,C] = {
+    new SimpleOp1("", (i: A) => other.func(this.func(i).asInstanceOf[BB]), (this.inputTypes()(0), other.outputTypes()(0)))
   }
 
   def inputTypes(): Array[String] = {
@@ -389,6 +393,11 @@ class Pipeline[+A](val graph: Defs.G) {
     val o = ns(0).asInstanceOf[CalculatedNode].asOutput
     graph.replaceNode(ns(0), o)
     outputs = Array(o)
+
+    //If only one input, set inputs automatically (so interface() does not need to be called.)
+    if(graph.startingNodes.length == 1){
+      inputs = graph.startingNodes
+    }
     this.asInstanceOf[Pipeline[Nothing]]
   }
 
@@ -396,12 +405,7 @@ class Pipeline[+A](val graph: Defs.G) {
     assert(outputs != null)
     assert(ins.length == graph.startingNodes.length)
 
-    //    // sort tsort_order for input nodes, so that input will match with args.
-    //    val ins2 = ins.map(_.asInstanceOf[AnyNode])
-    //    val ns = ins2.map(_.tsort_order).toSeq.sorted
-    //    ns.zip(ins2).map(a => a._2.tsort_order = a._1)
     inputs = ins.toArray
-    //    interfaceSet = true
 
     this
   }

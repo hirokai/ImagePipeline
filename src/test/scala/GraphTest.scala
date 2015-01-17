@@ -81,6 +81,34 @@ class MapNodeSpec extends FlatSpec with Matchers {
     res.length shouldEqual input.string(Codec.UTF8).lines.toArray.length
   }
 
+
+  "Double map" should "be typed" in {
+    val identity = new SimpleOp1[Path, Path]("identity",(p: Path) => p,("path","path"))
+    val duplicate = new SimpleOp1[Path, Array[Path]]("duplicate",(p: Path) => Array(p,p,p),("path","[path]"))
+    val strLength = new SimpleOp1[String,Int]("",_.length,("path","int"))
+    val numX2 = new SimpleOp1[Int,Int]("",_*2,("int","int"))
+    val duplicate2 = new SimpleOp1[Array[Path], Array[Path]]("duplicate2",(p: Array[Path]) => Array(p,p,p).flatten,("[path]","[path]"))
+    val path = new FilePath
+    val numbers = new InputArrayNode[Int]
+
+    val op = Pipeline.start(path).then(duplicate).map(strLength).mapmap(numX2).end()
+
+    a [ClassCastException] should be thrownBy {
+      val op = Pipeline.start(path).then(duplicate).map(numX2).end()
+      op.run("test")
+    }
+
+    val op2 = Pipeline.start(path).then(duplicate).map(strLength->numX2).end()
+    val op3 = Pipeline.start(numbers).map(numX2).end()
+    val res = op.run("test").asInstanceOf[Array[_]].deep
+    val res2 = op2.run("test").asInstanceOf[Array[_]].deep
+    val res3 = op3.run(Array(1,2,3,4))
+    println(res3.deep)
+    println(res.mkString(","))
+    println(res2.mkString(","))
+    assert(res == res2)
+  }
+
   "Multiple ROIs for each file" should "compose" in {
     val list = new FilePath
     val roi = new InputRoi
@@ -92,17 +120,6 @@ class MapNodeSpec extends FlatSpec with Matchers {
     val res = getstats_roi.run(("./testimgs/list.txt", (0,0,100,100)))(0).asInstanceOf[Array[Any]]
     res.length shouldEqual 2
   }
-
-  "Double map" should "be typed" in {
-    val identity = new SimpleOp1[Path, Path]("identity",(p: Path) => p,("path","path"))
-    val duplicate = new SimpleOp1[Path, Array[Path]]("duplicate",(p: Path) => Array(p,p,p),("path","[path]"))
-    val duplicate2 = new SimpleOp1[Array[Path], Array[Path]]("duplicate2",(p: Array[Path]) => Array(p,p,p).flatten,("[path]","[path]"))
-    val path = new FilePath
-    val op = Pipeline.start(path).then(duplicate).map(duplicate).mapmap(duplicate2).end().interface(path)
-    val res = op.run("test")
-    res
-  }
-
 
 }
 
