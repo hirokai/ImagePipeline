@@ -13,6 +13,7 @@ import scala.util.Random
 import funcs._
 
 class BasicSpec extends FlatSpec with Matchers {
+
   import imagepipeline.funcs._
   import Pipeline._
 
@@ -29,7 +30,7 @@ class BasicSpec extends FlatSpec with Matchers {
     for (i <- 0 until 10) {
       val pos = (rng.nextInt(300), rng.nextInt(300), rng.nextInt(300), rng.nextInt(300))
       printf("Repeating: %d\n", i)
-      val getstats_roi: Pipeline21[Path,Roi,RowData] = start(file_path).then(imload).then2(statroi, roi).end().inputOrder(file_path,roi)
+      val getstats_roi: Pipeline21[Path, Roi, RowData] = start(file_path).then(imload).then2(statroi, roi).end().inputOrder(file_path, roi)
       val res = getstats_roi.run("./testimgs/BF.tif", pos)
       println(res)
       res.isInstanceOf[RowData] shouldBe true
@@ -55,66 +56,83 @@ class BasicSpec extends FlatSpec with Matchers {
 }
 
 class MapNodeSpec extends FlatSpec with Matchers {
+
   import Pipeline._
-  
+
   "map" should "be composable" in {
     val filelist = new InputFileList()
-    val a: Pipeline11[Array[Path],Array[ImageProcessor]] = start(filelist).map(imload).end()
+    val a: Pipeline11[Array[Path], Array[ImageProcessor]] = start(filelist).map(imload).end()
     a.verify()
   }
 
   it should "run" in {
     val filelist = new InputFileList()
-    val a: Pipeline11[Array[Path],Array[ImageProcessor]] = start(filelist).map(imload).end()
+    val a: Pipeline11[Array[Path], Array[ImageProcessor]] = start(filelist).map(imload).end()
     a.verify()
-    val res: Array[ImageProcessor] = a.run(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif"))
+    // FIXME: this causes error because asInstanceOf does not work for Array[_].
+    // See: http://stackoverflow.com/questions/6686992/scala-asinstanceof-with-parameterized-types
+    val res: Array[ImageProcessor] = a.runA(Array("./testimgs/BF.tif", "./testimgs/Cy5.tif")).toArray
     println(res)
   }
 
+  var aa: Pipeline11[Path, Array[ImageProcessor]] = _
+
   "InputFileListFromSource" should "compose" in {
     import imagepipeline.funcs._
-
-    val input_file = "./testimgs/list.txt"
     val list = new FilePath
-    val a: Pipeline11[Path,Array[ImageProcessor]] = start(list).then(readLines).map(imload).end()
-    val res = a.run(input_file)
+    val a: Pipeline11[Path, Array[ImageProcessor]] = start(list).then(readLines).map(imload).end()
+    aa = a
+  }
+
+  it should "run" in {
+    val input_file = "./testimgs/list.txt"
+    val res = aa.runA(input_file)
     val input: Input = Resource.fromFile(input_file)
     res.length shouldEqual input.string(Codec.UTF8).lines.toArray.length
   }
 
-
+  var op: Pipeline11[Path,Array[Int]] = _
+  var op2: Pipeline11[String, Array[Int]] = _
+  var op3: Pipeline11[Array[Int], Array[Int]] = _
   "Double map" should "be typed" in {
-    val identity = new SimpleOp1[Path, Path]("identity",(p: Path) => p,("path","path"))
-    val duplicate = new SimpleOp1[Path, Array[Path]]("duplicate",(p: Path) => Array(p,p,p),("path","[path]"))
-    val strLength = new SimpleOp1[String,Int]("",_.length,("path","int"))
-    val numX2 = new SimpleOp1[Int,Int]("",_*2,("int","int"))
-    val duplicate2 = new SimpleOp1[Array[Path], Array[Path]]("duplicate2",(p: Array[Path]) => Array(p,p,p).flatten,("[path]","[path]"))
+    val identity = new SimpleOp1[Path, Path]("identity", (p: Path) => p, ("path", "path"))
+    val duplicate = new SimpleOp1[Path, Array[Path]]("duplicate", (p: Path) => Array(p, p, p), ("path", "[path]"))
+    val strLength = new SimpleOp1[String, Int]("", _.length, ("path", "int"))
+    val numX2 = new SimpleOp1[Int, Int]("", _ * 2, ("int", "int"))
+    val duplicate2 = new SimpleOp1[Array[Path], Array[Path]]("duplicate2", (p: Array[Path]) => Array(p, p, p).flatten, ("[path]", "[path]"))
     val path = new FilePath
     val numbers = new InputArrayNode[Int]
 
-    val op = start(path).then(duplicate).map(strLength).mapmap(numX2).end()
+    op = start(path).then(duplicate).map(strLength).mapmap(numX2).end()
+    op2 = start(path).then(duplicate).map(strLength -> numX2).end()
+    op3 = start(numbers).map(numX2).end()
+  }
 
-    val op2 = start(path).then(duplicate).map(strLength->numX2).end()
-    val op3: Pipeline11[Array[Int],Array[Int]] = start(numbers).map(numX2).end()
+  it should "run" in {
     val res = op.run("test").asInstanceOf[Array[_]].deep
     val res2 = op2.run("test").asInstanceOf[Array[_]].deep
-    val res3 = op3.run(Array(1,2,3,4): Array[Int])
+    val res3 = op3.runA(Array(1, 2, 3, 4): Array[Int]).toArray
     println(res3.deep)
     println(res.mkString(","))
     println(res2.mkString(","))
     assert(res == res2)
   }
 
+  var getstats_roi: Pipeline21[Path, Roi, Array[RowData]] = _
   "Multiple ROIs for each file" should "compose" in {
     val list = new FilePath
     val roi = new InputRoi
     val rois = new FilePath
     val entry = new FilePath
-    val proc_entry: Pipeline21[Path,Roi,RowData] = start(entry).then(imload).then2(statroi, roi).end()
-    val roi_of_slice: Pipeline21[Path,Path,Array[Roi]] = start(entry).then2(selectRois,rois).end()
-    val getstats_roi: Pipeline21[Path,Roi,Array[RowData]] = start(list).then(readLines).map2(proc_entry,roi).end()
-    val res = getstats_roi.run("./testimgs/list.txt", (0,0,100,100))
-    res.isInstanceOf[RowData] shouldBe true
+    val proc_entry: Pipeline21[Path, Roi, RowData] = start(entry).then(imload).then2(statroi, roi).end().inputOrder(entry,roi)
+    val roi_of_slice: Pipeline21[Path, Path, Array[Roi]] = start(entry).then2(selectRois, rois).end().inputOrder(entry,rois)
+    getstats_roi = start(list).then(readLines).map2(proc_entry, roi).end().inputOrder(list,roi)
+  }
+
+  it should "run" in {
+    val res: Array[RowData] = getstats_roi.runA("./testimgs/list.txt", (0, 0, 100, 100)).toArray
+    res.isInstanceOf[Array[RowData]] shouldBe true
+    println(res.deep)
   }
 
 }

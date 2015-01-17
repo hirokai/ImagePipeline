@@ -1,9 +1,10 @@
 package imagepipeline
 
+import java.awt.{Image, Color}
 import java.io.File
 
 import ij.{IJ, ImagePlus}
-import ij.process.ImageProcessor
+import ij.process.{FloatProcessor, ImageProcessor}
 
 import scala.collection._
 import scala.reflect.ClassTag
@@ -89,17 +90,17 @@ class Map1Node[A, B](val func: Calc1[A, B]) extends CalcNode {
   override def toString = defaultToString("MapNode")
 }
 
-class Map1NodeP[A,B](val func: Pipeline11[A,B]) extends CalcNode {
-  override def inputTypes(): Array[String] = {
-    Array()
-  }
-
-  override def outputTypes(): Array[String] = {
-    Array()
-  }
-
-  override def toString = defaultToString("MapNodeP")
-}
+//class Map1NodeP[A,B](val func: Pipeline11[A,B]) extends CalcNode {
+//  override def inputTypes(): Array[String] = {
+//    Array()
+//  }
+//
+//  override def outputTypes(): Array[String] = {
+//    Array()
+//  }
+//
+//  override def toString = defaultToString("MapNodeP")
+//}
 
 class Map2Node[A1,A2,B](val func: Calc2[A1,A2,B]) extends CalcNode {
   override def inputTypes(): Array[String] = {
@@ -110,7 +111,7 @@ class Map2Node[A1,A2,B](val func: Calc2[A1,A2,B]) extends CalcNode {
     Array()
   }
 
-  override def toString = defaultToString("MapNodeP")
+  override def toString = defaultToString("Map2Node")
 }
 
 class InputFileList() extends InputNode[Array[String]] {
@@ -315,15 +316,29 @@ class Pipeline31[-A1,-A2,-A3,+B](val graph: Graph[AnyNode[_]]) extends Calc3[A1,
 }
 
 class Pipeline21[-A1,-A2,+B](val graph: Graph[AnyNode[_]]) extends Calc2[A1,A2,B]{
-  def run(p1: A1, p2: A2) = {
-    assert(inputs != null && outputs != null)
-    val sorted = graph.tsort
+  def run(p1: A1, p2: A2):B = {
     val values = new mutable.HashMap[String,Any]
+    doRun(values,p1,p2)
+    values(this.outputs(0).id).asInstanceOf[B]
+  }
+
+  def runA[C](p1: A1, p2: A2)(implicit ev: B <:< Array[C]): Seq[C] = {
+    val values = new mutable.HashMap[String,Any]
+    doRun(values,p1,p2)
+    val v = values(this.outputs(0).id)
+    println(v)
+    v.asInstanceOf[Array[Object]].toSeq.map(_.asInstanceOf[C])
+  }
+
+  def doRun(values: mutable.HashMap[String,Any], p1: A1, p2: A2): Unit = {
+    val sorted = graph.tsort
+    assert(inputs.length ==2 && outputs.length == 1)
     values(inputs(0).id) = p1
     values(inputs(1).id) = p2
-    for(node <- sorted if values.get(node.id).isEmpty) {
+    println(sorted.mkString(","))
+    for (node <- sorted if values.get(node.id).isEmpty) {
       node match {
-        case _:DataNode[_] => {
+        case _: DataNode[_] => {
           val node_inputs = graph.predecessors(node)
           assert(node_inputs.length == 1)
           values(node.id) = Pipeline.calc_prev(graph, values, node_inputs(0).asInstanceOf[CalcNode[_]])
@@ -331,8 +346,9 @@ class Pipeline21[-A1,-A2,+B](val graph: Graph[AnyNode[_]]) extends Calc2[A1,A2,B
         case _ =>
       }
     }
-    values(this.outputs(0).id).asInstanceOf[B]
   }
+
+
   def inputTypes: Array[String] = ???
   def outputTypes: Array[String] = ???
   def end(): Pipeline21[A1,A2,B] = {
@@ -478,10 +494,17 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A,B] {
     new java.io.File("test.dot").asOutput.write(graph.toDot)
   }
 
-  def run(param: A): B = {
+  def runA[C](param: A)(implicit ev: B <:< Array[C]): Seq[C] = {
+    val values = new mutable.HashMap[String,Any]
+    doRun(param,values)
+    val v = values(this.outputs(0).id)
+    println(v)
+    v.asInstanceOf[Array[Object]].toSeq.map(_.asInstanceOf[C])
+  }
+
+  def doRun(param: A, values: mutable.HashMap[String,Any]): Unit = {
     this.verify()
     val sorted = graph.tsort
-    val values = new mutable.HashMap[String,Any]
     values(inputs(0).id) = param
     println(sorted.mkString(","))
     for(node <- sorted if values.get(node.id).isEmpty) {
@@ -494,7 +517,13 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A,B] {
         case _ =>
       }
     }
-    values(this.outputs(0).id).asInstanceOf[B]
+  }
+
+  def run(param: A): B = {
+    val values = new mutable.HashMap[String,Any]
+    doRun(param,values)
+    val v = values(this.outputs(0).id)
+    v.asInstanceOf[B]
   }
 //
 //          val res = c match {
@@ -577,6 +606,13 @@ object Pipeline {
         assert(ins.length == 1)
         val vs = values(ins(0).id)
         vs.asInstanceOf[Array[A1]].map(v => c.func.run(v)).asInstanceOf[C]
+      }
+      case c: Map2Node[A1,A2,D] => {
+        val ins = graph.predecessors(c)
+        assert(ins.length == 2)
+        val vs = values(ins(0).id)
+        val p2 = values(ins(1).id).asInstanceOf[A2]
+        vs.asInstanceOf[Array[A1]].map(v => c.func.run(v,p2)).asInstanceOf[C]
       }
     }
   }
