@@ -30,17 +30,17 @@ case class RoiDataset(image: String, roi: String) {
     Some(res.toArray)
   }
 
-  def run(firstNum: Int = -1): Unit = {
+  def run[A](calc: Pipeline21[ImageProcessor,Roi,A], firstNum: Int = -1): Unit = {
     readAll(image, roi) match {
       case Some(ts) => {
         val ls = if (firstNum > 0) ts(0).lines.take(firstNum) else ts(0).lines
-        process(ls, ts(1), cropAndCombine)
+        process(ls, ts(1), calc)
       }
       case None => println("Could not read files")
     }
   }
 
-  def process(imgs: Iterator[String], rois: String, calc: CropType): Unit = {
+  def process[A](imgs: Iterator[String], rois: String, calc: Pipeline21[ImageProcessor,Roi,A]): Unit = {
     val r = Csv.read(rois, "Slice")
     //    println(imgs.length)
     def getRoi(m: Array[Map[String, String]]): Array[Roi] = {
@@ -54,11 +54,12 @@ case class RoiDataset(image: String, roi: String) {
       r.get((i + 1).toString) match {
         case Some(rois) => {
           val img1 = IJ.openImage(im).getProcessor
-          val img2 = IJ.openImage(im.replace("640tirf", "ricm")).getProcessor
+//          val img2 = IJ.openImage(im.replace("640tirf", "ricm")).getProcessor
           for (r <- getRoi(rois)) {
             count += 1
-            val res: ImageProcessor = calc.run(img2, r, img1, r)
-            IJ.save(new ImagePlus("result", res), "./testimgs/%03d.tif".format(count))
+            val res: A = calc.run(img1, r)
+            println(res.asInstanceOf[RowData])
+//            IJ.save(new ImagePlus("result", res), "./testimgs/%03d.tif".format(count))
           }
         }
         case None =>

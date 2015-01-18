@@ -107,7 +107,7 @@ class InputFileList() extends InputNode[Array[String]] {
   override def toString = defaultToString("InputFileList",id,name)
 }
 
-class InputImg(val path: String, name: String = "", override val id: String = IDGen.gen_new_id()) extends InputNode[ImageProcessor] {
+class InputImg(name: String = "", override val id: String = IDGen.gen_new_id()) extends InputNode[ImageProcessor] {
   type Value = ImageProcessor
 
   override val typ = "inputimg"
@@ -482,7 +482,7 @@ class Pipeline21[-A1, -A2, +B](val graph: Graph[AnyNode[_]]) extends Calc2[A1, A
   def run(p1: A1, p2: A2): B = {
     val values = new mutable.HashMap[String, Any]
     doRun(values, p1, p2)
-    println(values)
+//    println(values)
     values(this.outputs(0).id).asInstanceOf[B]
   }
 

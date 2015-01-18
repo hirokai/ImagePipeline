@@ -1,5 +1,6 @@
 package imagepipeline.Test
 
+import imagepipeline.Pipeline._
 import imagepipeline._
 import ij.IJ
 import ij.process.ImageProcessor
@@ -135,10 +136,17 @@ class MapNodeSpec extends FlatSpec with Matchers {
 // Uses local files that do not work on Travis.
 class DatasetExamples extends FlatSpec with Matchers {
   import Dataset._
-  "ROIs for images" should "run" in {
+  import Pipeline._
+  "Crop and combine for images" should "run" in {
     val ds = RoiDataset("86cbd2693d78d27eebbc","384bf685329387382358")
     // FIXME: This runs, but the results is wrong. (2 channels have same images for some reason.)
-    cropAndCombine.save_dot(cropAndCombine.graph, "test.dot")
-    ds.run(2)
+    cropAndCombine.save_dot(cropAndCombine.graph, "test")
+//    ds.run(cropAndCombine)
+  }
+  "Stats for ROIs" should "run" in {
+    val img = new InputImg
+    val getstats_roi: Pipeline21[ImageProcessor, Roi, RowData] = start(img).then2(statroi, roi).end().inputOrder(img,roi)
+    val ds = RoiDataset("86cbd2693d78d27eebbc","384bf685329387382358")
+    ds.run(getstats_roi,2)
   }
 }
