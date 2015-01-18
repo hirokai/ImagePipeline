@@ -4,6 +4,8 @@ import ij.IJ
 import ij.process.ImageProcessor
 
 package object funcs {
+  import Defs._
+
   val readLines = new SimpleOp1[String, Array[String]]("image load", (path: String) => {
     import scalax.io._
     val input: Input = Resource.fromFile(path)
@@ -51,6 +53,7 @@ object Defs {
   import funcs._
 
   import Pipeline._
+  type Roi = (Int, Int, Int, Int)
 
   val crop = new SimpleOp2[ImageProcessor, (Int, Int, Int, Int), ImageProcessor]("crop", cropping, ("image", "roi", "image"))
   val autocontrast = new SimpleOp1[ImageProcessor, ImageProcessor]("contrast", contrast_do, ("image", "image"))
@@ -82,7 +85,8 @@ object Defs {
   val a: Pipeline21[ImageProcessor,Roi,ImageProcessor] = start(bf).then2(crop, roi).then(autocontrast)
   val b = Pipeline.start(cy5).then2(crop, roi).then(autocontrast)
   val outimg = new OutputImg("result final.tiff", "Result")
-  val cropAndCombine: Pipeline41[ImageProcessor,Roi,ImageProcessor,Roi,ImageProcessor] = Pipeline.cont2(combine2, a, b).end().inputOrder(bf,roi,cy5,roi)
+  type CropType = Pipeline41[ImageProcessor,Roi,ImageProcessor,Roi,ImageProcessor]
+  val cropAndCombine: CropType = Pipeline.cont2(combine2, a, b).end().inputOrder(bf,roi,cy5,roi)
 //  cropAndCombine.verify(Array(bf.id, cy5.id), Array())
 
 
