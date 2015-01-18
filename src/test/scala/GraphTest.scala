@@ -146,7 +146,10 @@ class DatasetExamples extends FlatSpec with Matchers {
   "Stats for ROIs" should "run" in {
     val img = new InputImg
     val getstats_roi: Pipeline21[ImageProcessor, Roi, RowData] = start(img).then2(statroi, roi).end().inputOrder(img,roi)
-    val ds = RoiDataset("86cbd2693d78d27eebbc","384bf685329387382358")
-    ds.run(getstats_roi,2)
+    def f(path: String) = {
+      path.replaceAll(""".+?/(\d{8}.+)$""","http://storage.googleapis.com/tiffimages/$1")
+    }
+    val ds = RoiDataset("86cbd2693d78d27eebbc","384bf685329387382358",convertImgPath=f)
+    ds.run(getstats_roi, 20)
   }
 }

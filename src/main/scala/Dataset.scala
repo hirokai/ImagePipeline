@@ -14,7 +14,7 @@ class Dataset {
   }
 }
 
-case class RoiDataset(image: String, roi: String) {
+case class RoiDataset(image: String, roi: String, convertImgPath: String => String = a => a) {
 
   import Dataset._
 
@@ -30,7 +30,7 @@ case class RoiDataset(image: String, roi: String) {
     Some(res.toArray)
   }
 
-  def run[A](calc: Pipeline21[ImageProcessor,Roi,A], firstNum: Int = -1): Unit = {
+  def run[A](calc: Pipeline21[ImageProcessor, Roi, A], firstNum: Int = -1): Unit = {
     readAll(image, roi) match {
       case Some(ts) => {
         val ls = if (firstNum > 0) ts(0).lines.take(firstNum) else ts(0).lines
@@ -40,7 +40,7 @@ case class RoiDataset(image: String, roi: String) {
     }
   }
 
-  def process[A](imgs: Iterator[String], rois: String, calc: Pipeline21[ImageProcessor,Roi,A]): Unit = {
+  def process[A](imgs: Iterator[String], rois: String, calc: Pipeline21[ImageProcessor, Roi, A]): Unit = {
     val r = Csv.read(rois, "Slice")
     //    println(imgs.length)
     def getRoi(m: Array[Map[String, String]]): Array[Roi] = {
@@ -49,17 +49,21 @@ case class RoiDataset(image: String, roi: String) {
       })
     }
     var count = 0
+    var countfile = 0
     for ((im, i) <- imgs.zipWithIndex) {
+      countfile += 1
       //      println(im,im.replace("640tirf","ricm"))
       r.get((i + 1).toString) match {
         case Some(rois) => {
-          val img1 = IJ.openImage(im).getProcessor
-//          val img2 = IJ.openImage(im.replace("640tirf", "ricm")).getProcessor
+          val path = convertImgPath(im)
+          println("#%03d(%03d) Loading: %s".format(countfile,count,path))
+          val img1 = IJ.openImage(path).getProcessor
+          //          val img2 = IJ.openImage(im.replace("640tirf", "ricm")).getProcessor
           for (r <- getRoi(rois)) {
             count += 1
             val res: A = calc.run(img1, r)
             println(res.asInstanceOf[RowData])
-//            IJ.save(new ImagePlus("result", res), "./testimgs/%03d.tif".format(count))
+            //            IJ.save(new ImagePlus("result", res), "./testimgs/%03d.tif".format(count))
           }
         }
         case None =>

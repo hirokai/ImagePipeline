@@ -499,7 +499,7 @@ class Pipeline21[-A1, -A2, +B](val graph: Graph[AnyNode[_]]) extends Calc2[A1, A
     assert(inputs.length == inputArity && outputs.length == outputArity)
     values(inputs(0).id) = p1
     values(inputs(1).id) = p2
-    println(sorted.mkString(","))
+//    println(sorted.mkString(","))
     for (node <- sorted if values.get(node.id).isEmpty) {
       node match {
         case _: DataNode[_] => {
