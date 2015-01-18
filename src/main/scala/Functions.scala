@@ -1,6 +1,6 @@
 package imagepipeline
 
-import ij.IJ
+import ij.{IJ,ImagePlus,ImageStack}
 import ij.process.ImageProcessor
 
 package object funcs {
@@ -60,17 +60,21 @@ object Defs {
 
   val combine2 = new SimpleOp2[ImageProcessor, ImageProcessor, ImageProcessor]("combine", (a: ImageProcessor, b: ImageProcessor) => {
     import ij.plugin.StackCombiner
-    import ij.ImageStack
-
     def f(img: ImageProcessor): ImageStack = {
       val s = new ImageStack(img.getWidth, img.getHeight)
       s.addSlice(img)
       s
     }
+    println(a.getStatistics.mean,b.getStatistics.mean)
     val s1 = f(a)
     val s2 = f(b)
-    val s = new StackCombiner().combineHorizontally(s1, s2)
+    val s: ImageStack = new StackCombiner().combineHorizontally(s1, s2)
+//    new ImagePlus("test",s1).show()
+//    new ImagePlus("test",s2).show()
+//    Thread.sleep(1000)
     val r = s.getProcessor(1)
+    val rng = new scala.util.Random
+    IJ.save(new ImagePlus("test",r),"./out/%s.tif".format(rng.alphanumeric.take(3).mkString))
     //    new ImagePlus("result", r).show()
     r
   }, ("image", "image", "image"))
@@ -82,11 +86,11 @@ object Defs {
   val bf = new InputImg("/Users/hiroyuki/repos/ImagePipeline/BF.jpg")
   val cy5 = new InputImg("/Users/hiroyuki/repos/ImagePipeline/Cy5.jpg")
   val roi = new InputRoi("cropping")
-  val a: Pipeline21[ImageProcessor,Roi,ImageProcessor] = start(bf).then2(crop, roi).then(autocontrast)
-  val b = Pipeline.start(cy5).then2(crop, roi).then(autocontrast)
-  val outimg = new OutputImg("result final.tiff", "Result")
+  val a = start(bf).then2(crop, roi).then(autocontrast)
+  val b = start(cy5).then2(crop, roi).then(autocontrast)
+//  val outimg = new OutputImg("result final.tiff", "Result")
   type CropType = Pipeline41[ImageProcessor,Roi,ImageProcessor,Roi,ImageProcessor]
-  val cropAndCombine: CropType = Pipeline.cont2(combine2, a, b).end().inputOrder(bf,roi,cy5,roi)
+  val cropAndCombine: CropType = cont2(combine2, a, b).end().inputOrder(bf,roi,cy5,roi)
 //  cropAndCombine.verify(Array(bf.id, cy5.id), Array())
 
 

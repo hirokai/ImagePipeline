@@ -132,11 +132,13 @@ class MapNodeSpec extends FlatSpec with Matchers {
 
 }
 
-class DatasetSpec extends FlatSpec with Matchers {
+// Uses local files that do not work on Travis.
+class DatasetExamples extends FlatSpec with Matchers {
   import Dataset._
   "ROIs for images" should "run" in {
     val ds = RoiDataset("86cbd2693d78d27eebbc","384bf685329387382358")
+    // FIXME: This runs, but the results is wrong. (2 channels have same images for some reason.)
     cropAndCombine.save_dot(cropAndCombine.graph, "test.dot")
-    ds.run()
+    ds.run(2)
   }
 }

@@ -22,10 +22,11 @@ class AnyNode[+Value](val name: String = "", val id: String = IDGen.gen_new_id()
   val typ = "any"
 
   def copy(): AnyNode[Value] = {
+    println("Node copying ", this)
     new AnyNode[Value](id = IDGen.gen_new_id())
   }
 
-  protected def defaultToString(class_name: String): String = {
+  protected def defaultToString(class_name: String, id: String, name: String): String = {
     "%s:%s: %s (%d)".format(id, class_name, name, tsort_order)
   }
 }
@@ -61,13 +62,13 @@ trait OutputNode[A] extends CalculatedNode[A] {
 class ArrayNode[A] extends CalculatedNode[Array[A]] {
   def asOutput = new OutArrayNode[Array[A]]
 
-  override def toString = defaultToString("ArrayNode")
+  override def toString = defaultToString("ArrayNode",id,name)
 }
 
 class InputArrayNode[A] extends ArrayNode[A] with InputNode[Array[A]] {
   override def asOutput = new OutArrayNode[Array[A]]
 
-  override def toString = defaultToString("ArrayNode")
+  override def toString = defaultToString("ArrayNode",id,name)
 }
 
 class OutArrayNode[A] extends OutputNode[Array[A]] {
@@ -75,7 +76,7 @@ class OutArrayNode[A] extends OutputNode[Array[A]] {
 
   }
 
-  override def toString = defaultToString("OutArrayNode")
+  override def toString = defaultToString("OutArrayNode",id,name)
 }
 
 class Map1Node[A, B](val func: Calc1[A, B]) extends CalcNode {
@@ -87,7 +88,7 @@ class Map1Node[A, B](val func: Calc1[A, B]) extends CalcNode {
     Array()
   }
 
-  override def toString = defaultToString("MapNode")
+  override def toString = defaultToString("MapNode",id,name)
 }
 
 class Map2Node[A1, A2, B](val func: Calc2[A1, A2, B]) extends CalcNode {
@@ -99,11 +100,11 @@ class Map2Node[A1, A2, B](val func: Calc2[A1, A2, B]) extends CalcNode {
     Array()
   }
 
-  override def toString = defaultToString("Map2Node")
+  override def toString = defaultToString("Map2Node",id,name)
 }
 
 class InputFileList() extends InputNode[Array[String]] {
-  override def toString = defaultToString("InputFileList")
+  override def toString = defaultToString("InputFileList",id,name)
 }
 
 class InputImg(val path: String, name: String = "", override val id: String = IDGen.gen_new_id()) extends InputNode[ImageProcessor] {
@@ -111,7 +112,7 @@ class InputImg(val path: String, name: String = "", override val id: String = ID
 
   override val typ = "inputimg"
 
-  override def toString = defaultToString("InputImg")
+  override def toString = defaultToString("InputImg",id,name)
 
   override def copy: InputImg = {
     new InputImg(name)
@@ -123,7 +124,7 @@ class OutputImg(name: String = "", id: String = IDGen.gen_new_id()) extends Outp
   type Value = ImageProcessor
   override val typ = "outputimg"
 
-  override def toString = defaultToString("OutputImg")
+  override def toString = defaultToString("OutputImg",id,name)
 
   def saveToFile(path: String, d: ImageProcessor): Unit = {
     import ij.ImagePlus
@@ -227,12 +228,10 @@ class SimpleOp2[-A1, -A2, +B](name: String, func: (A1, A2) => B, types: (String,
   }
 
 
-  override def toString(): String = {
-    "%s:SimpleOp: %s".format(id, name)
-  }
+  override def toString(): String = defaultToString("SimpleOp2",id,name)
 
   override def copy(): SimpleOp2[A1, A2, B] = {
-    new SimpleOp2(name, func, types, IDGen.gen_new_id())
+    new SimpleOp2(name+" copied", func, types, IDGen.gen_new_id())
   }
 }
 
@@ -293,7 +292,7 @@ class OutputRowData extends OutputNode[RowData] {
 }
 
 class FilePath extends InputNode[String] {
-  override def toString = defaultToString("FilePath")
+  override def toString = defaultToString("FilePath",id,name)
 }
 
 trait Pipeline {
@@ -335,8 +334,20 @@ trait Pipeline {
     import scalax.io.Codec
     import scalax.io.JavaConverters._
     implicit val codec = Codec.UTF8
-    new java.io.File("test.dot").asOutput.write(graph.toDot)
+    new java.io.File("graph.dot").delete()
+    new java.io.File("graph.dot").asOutput.write(graph.toDot)
+    new java.io.File(getUniqName(graph)).asOutput.write(graph.toDot)
   }
+  def getUniqName(graph: Graph[_], base: String="graph"): String ={
+    var count = 2
+    var n = base + ".dot"
+    while(new java.io.File(n).exists) {
+      n = "%s_%d.dot".format(base,count)
+      count += 1
+    }
+    n
+  }
+
 }
 
 class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] with Pipeline {
@@ -347,6 +358,7 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] with 
 
   def then[C](node: ImgOp1[B, C]): Pipeline11[A, C] = {
     val graph = this.graph.copy
+    println("then(): "+graph)
     val ns = graph.terminalNodes
     val n: ImgOp1[A, B] = node.copy().asInstanceOf[ImgOp1[A, B]]
     val n2: AnyNode[_] = node.outputTypes()(0) match {
@@ -357,12 +369,15 @@ class Pipeline11[-A, +B](val graph: Graph[AnyNode[_]]) extends Calc1[A, B] with 
     }
     graph.addEdge(ns(0), n)
     graph.addEdge(n, n2)
+    println("then() done: "+graph)
+
 
     new Pipeline11[A, C](graph)
   }
 
   def then2[A2, C](node: ImgOp2[B, A2, C], param: AnyNode[A2]): Pipeline21[A, A2, C] = {
     val graph = this.graph.copy
+    println("then2(): "+graph)
     val ns = graph.terminalNodes
     val n: ImgOp2[B, A2, C] = node.copy().asInstanceOf[ImgOp2[B, A2, C]]
     val n2 = new ImgNode(id = IDGen.gen_new_id(), name = n.name + " result.")
@@ -521,7 +536,8 @@ class Pipeline21[-A1, -A2, +B](val graph: Graph[AnyNode[_]]) extends Calc2[A1, A
   }
 
   def then[C](node: Calc1[B, C]): Pipeline21[A1, A2, C] = {
-    val graph = this.graph
+    val graph = this.graph.copy
+    println("Pip21 then():"+graph)
     val n = graph.terminalNodes(0)
     graph.addEdge(n, node)
     val out = new ImgNode() //FIXME: This can be other types.
@@ -586,6 +602,8 @@ class Pipeline41[-A1, -A2, -A3, -A4, +B](val graph: Graph[AnyNode[_]]) extends C
     values(inputs(1).id) = p2
     values(inputs(2).id) = p3
     values(inputs(3).id) = p4
+//    println("Input0: "+values(inputs(0).id))
+//    println("Input2: "+values(inputs(2).id))
     for (node <- sorted if values.get(node.id).isEmpty) {
       node match {
         case _: DataNode[_] => {
@@ -697,10 +715,25 @@ class Graph[A <: AnyNode[_] : ClassTag] {
   var edges: mutable.ArrayBuffer[(A, A, Int)] = mutable.ArrayBuffer[(A, A, Int)]()
   var nodes: mutable.ArrayBuffer[A] = mutable.ArrayBuffer[A]()
 
-  def copy: Graph[A] = {
+  override def toString = {
+    "Graph edges: [%s], nodes: [%s]".format(edges.mkString(","),nodes.mkString(","))
+  }
+
+  def copy[B]: Graph[A] = {
     val r = new Graph[A]
     r.edges = edges.clone()
     r.nodes = nodes.clone()
+
+    // Assign new IDs
+    for(n <- r.nodes){
+      println("Copying: "+n)
+      val n_new: A = n match {
+        case _: CalcNode[A] => n.copy().asInstanceOf[A]
+        case _ => n.asInstanceOf[A]
+      }
+      println("New node: "+n_new)
+      r.replaceNode(n,n_new)
+    }
     r
   }
 

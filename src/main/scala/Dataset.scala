@@ -9,45 +9,56 @@ import imagepipeline._, Defs._
 import scala.collection._
 
 class Dataset {
-  def run(): Unit ={
+  def run(): Unit = {
 
   }
 }
 
 case class RoiDataset(image: String, roi: String) {
+
   import Dataset._
+
   // from Github gist
-  def run(): Unit = {
-    readGist(image, secret=true) match {
-      case Some(t) => {
-        readGist(roi, secret=true) match {
-          case Some(r) => {
-            process(t.lines, r, cropAndCombine)
-          }
-          case _ => println("Could not load ROI list.")
-        }
+  private def readAll(arr: String*): Option[Array[String]] = {
+    val res = new mutable.ArrayBuffer[String]
+    for (path <- arr) {
+      readGist(path, true) match {
+        case Some(t) => res += t
+        case None => return None
       }
-      case _ => println("Could not load image list.")
+    }
+    Some(res.toArray)
+  }
+
+  def run(firstNum: Int = -1): Unit = {
+    readAll(image, roi) match {
+      case Some(ts) => {
+        val ls = if (firstNum > 0) ts(0).lines.take(firstNum) else ts(0).lines
+        process(ls, ts(1), cropAndCombine)
+      }
+      case None => println("Could not read files")
     }
   }
+
   def process(imgs: Iterator[String], rois: String, calc: CropType): Unit = {
-    val r = Csv.read(rois,"Slice")
-//    println(imgs.length)
-    def getRoi(m: Array[Map[String,String]]): Array[Roi] = {
-       m.map(mm =>{
-         (mm("BX").toInt,mm("BY").toInt,mm("Width").toInt,mm("Height").toInt)
-       })
+    val r = Csv.read(rois, "Slice")
+    //    println(imgs.length)
+    def getRoi(m: Array[Map[String, String]]): Array[Roi] = {
+      m.map(mm => {
+        (mm("BX").toInt, mm("BY").toInt, mm("Width").toInt, mm("Height").toInt)
+      })
     }
     var count = 0
-    for((im,i) <- imgs.zipWithIndex) {
-      r.get((i+1).toString) match {
-        case Some(rois) =>{
-          for(r <- getRoi(rois)) {
+    for ((im, i) <- imgs.zipWithIndex) {
+      //      println(im,im.replace("640tirf","ricm"))
+      r.get((i + 1).toString) match {
+        case Some(rois) => {
+          val img1 = IJ.openImage(im).getProcessor
+          val img2 = IJ.openImage(im.replace("640tirf", "ricm")).getProcessor
+          for (r <- getRoi(rois)) {
             count += 1
-            val img1 = IJ.openImage(im).getProcessor
-            val img2 = IJ.openImage(im.replace("640tirf","ricm")).getProcessor
-            val res: ImageProcessor = calc.run(img1, r, img2, r)
-            IJ.save(new ImagePlus("result",res),"./testimgs/%03d.tif".format(count))
+            val res: ImageProcessor = calc.run(img2, r, img1, r)
+            IJ.save(new ImagePlus("result", res), "./testimgs/%03d.tif".format(count))
           }
         }
         case None =>
@@ -57,17 +68,17 @@ case class RoiDataset(image: String, roi: String) {
 }
 
 object Csv {
-  def read(str: String, key: String, sep: String = "\t"): Map[String,Array[Map[String,String]]] = {
-    val res = new mutable.HashMap[String,mutable.ArrayBuffer[Map[String,String]]]
+  def read(str: String, key: String, sep: String = "\t"): Map[String, Array[Map[String, String]]] = {
+    val res = new mutable.HashMap[String, mutable.ArrayBuffer[Map[String, String]]]
     val lines = str.lines
     val header = lines.next().split(sep)
     val keyidx = header.indexOf(key)
-    for(l <- lines) {
+    for (l <- lines) {
       val cols = l.split(sep)
       val m = header.zip(cols).map(a => a._1 -> a._2).toMap
       val k = cols(keyidx)
-      if(res.get(k).isEmpty) {
-        res(k) = new mutable.ArrayBuffer[Map[String,String]]
+      if (res.get(k).isEmpty) {
+        res(k) = new mutable.ArrayBuffer[Map[String, String]]
       }
       res(k) += m
     }
@@ -76,12 +87,12 @@ object Csv {
 }
 
 object Dataset {
-  def readGist(id: String, secret: Boolean = false): Option[String]= {
-    try{
-      val req = if(secret)
-        url("https://api.github.com/gists/"+id).as_!("hirokai", KeyChain.readToken.getOrElse(""))
+  def readGist(id: String, secret: Boolean = false): Option[String] = {
+    try {
+      val req = if (secret)
+        url("https://api.github.com/gists/" + id).as_!("hirokai", KeyChain.readToken.getOrElse(""))
       else
-        url("https://api.github.com/gists/"+id)
+        url("https://api.github.com/gists/" + id)
 
       val resp = Http(req OK as.String)
       val s = resp()
@@ -89,8 +100,8 @@ object Dataset {
       import play.api.libs.json._
       val obj = Json.parse(s)
       Some((obj \\ "content")(0).as[String])
-    }catch{
-      case _ => None
+    } catch {
+      case _: Exception => None
     }
   }
 }
@@ -100,7 +111,7 @@ object KeyChain {
 
   def readToken =
     Keyring.read(keyName) match {
-      case null  => None
+      case null => None
       case chars => Some(chars.mkString)
     }
 
